@@ -129,6 +129,9 @@ fn add_cjk_latin_spacing(items: &mut [(Range, Item)]) {
         .filter(|(_, item)| !matches!(item, Item::Tag(_)))
         .flat_map(|(_, item)| match item {
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 809658d6 (Do not add CJK-Latin-Spacing at shift boundaries)
             Item::Text(text) => Either::Left({
                 // Check whether the text is normal, sub- or superscript. At
                 // boundaries between these three, we do not want to insert
@@ -136,6 +139,7 @@ fn add_cjk_latin_spacing(items: &mut [(Range, Item)]) {
                 let shift =
                     text.styles.get_ref(TextElem::shift_settings).map(|shift| shift.kind);
 
+<<<<<<< HEAD
                 // Since we only call this function in [`prepare`], we can
                 // assume that the Cow is owned, and `to_mut` can be called
                 // without overhead.
@@ -149,10 +153,18 @@ fn add_cjk_latin_spacing(items: &mut [(Range, Item)]) {
                 text.glyphs.to_mut().iter_mut().map(Some),
             ),
 >>>>>>> 0b4f5046 (Simplify CJK-Latin-Spacing implementation)
+=======
+                // Since we only call this function in [`prepare`], we can
+                // assume that the Cow is owned, and `to_mut` can be called
+                // without overhead.
+                text.glyphs.to_mut().iter_mut().map(move |g| Some((g, shift)))
+            }),
+>>>>>>> 809658d6 (Do not add CJK-Latin-Spacing at shift boundaries)
             _ => Either::Right(std::iter::once(None)),
         })
         .peekable();
 
+<<<<<<< HEAD
 <<<<<<< HEAD
     let mut prev: Option<(&mut ShapedGlyph, _)> = None;
     while let Some(mut item) = iter.next() {
@@ -164,13 +176,20 @@ fn add_cjk_latin_spacing(items: &mut [(Range, Item)]) {
                 && *shift == *next_shift
 =======
     let mut prev: Option<&mut ShapedGlyph> = None;
+=======
+    let mut prev: Option<(&mut ShapedGlyph, _)> = None;
+>>>>>>> 809658d6 (Do not add CJK-Latin-Spacing at shift boundaries)
     while let Some(mut item) = iter.next() {
-        if let Some(glyph) = &mut item {
+        if let Some((glyph, shift)) = &mut item {
             // Case 1: CJ followed by a Latin character
             if glyph.is_cj_script()
-                && let Some(Some(next_glyph)) = iter.peek()
+                && let Some(Some((next_glyph, next_shift))) = iter.peek()
                 && next_glyph.is_letter_or_number()
+<<<<<<< HEAD
 >>>>>>> 0b4f5046 (Simplify CJK-Latin-Spacing implementation)
+=======
+                && *shift == *next_shift
+>>>>>>> 809658d6 (Do not add CJK-Latin-Spacing at shift boundaries)
             {
                 // The spacing defaults to 1/4 em, and can be shrunk to 1/8 em.
                 glyph.x_advance += Em::new(0.25);
@@ -180,6 +199,7 @@ fn add_cjk_latin_spacing(items: &mut [(Range, Item)]) {
             // Case 2: Latin followed by a CJ character
             if glyph.is_cj_script()
 <<<<<<< HEAD
+<<<<<<< HEAD
                 && let Some((prev_glyph, prev_shift)) = prev
                 && prev_glyph.is_letter_or_number()
                 && *shift == prev_shift
@@ -187,6 +207,11 @@ fn add_cjk_latin_spacing(items: &mut [(Range, Item)]) {
                 && let Some(prev_glyph) = prev
                 && prev_glyph.is_letter_or_number()
 >>>>>>> 0b4f5046 (Simplify CJK-Latin-Spacing implementation)
+=======
+                && let Some((prev_glyph, prev_shift)) = prev
+                && prev_glyph.is_letter_or_number()
+                && *shift == prev_shift
+>>>>>>> 809658d6 (Do not add CJK-Latin-Spacing at shift boundaries)
             {
                 glyph.x_advance += Em::new(0.25);
                 glyph.x_offset += Em::new(0.25);
