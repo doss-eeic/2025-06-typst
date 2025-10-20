@@ -1129,9 +1129,9 @@ cast! {
     TextDir,
     self => self.0.into_value(),
     v: Smart<Dir> => {
-        if v.is_custom_and(|dir| dir.axis() == Axis::Y) {
-            bail!("text direction must be horizontal");
-        }
+        // if v.is_custom_and(|dir| dir.axis() == Axis::Y) {
+        //     bail!("text direction must be horizontal");
+        // }
         Self(v)
     },
 }

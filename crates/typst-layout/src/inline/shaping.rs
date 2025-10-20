@@ -142,6 +142,8 @@ pub struct ShapedGlyph {
     pub x_advance: Em,
     /// The horizontal offset of the glyph.
     pub x_offset: Em,
+    /// The advance height of the glyph.
+    pub y_advance: Em,
     /// The vertical offset of the glyph.
     pub y_offset: Em,
     /// The font size for the glyph.
@@ -333,7 +335,8 @@ impl<'a> ShapedText<'a> {
         extra_justification: Abs,
     ) -> Frame {
         let (top, bottom) = self.measure(engine);
-        let size = Size::new(self.width(), top + bottom);
+        // let size = Size::new(self.width(), top + bottom);
+        let size = Size::new(Abs::raw(10000.0), Abs::raw(10000.0));
 
         let mut offset = Abs::zero();
         let mut frame = Frame::soft(size);
@@ -418,10 +421,14 @@ impl<'a> ShapedText<'a> {
                     // A+B+C+D: Glyph's x_advance
                     Glyph {
                         id: shaped.glyph_id,
-                        x_advance,
-                        x_offset: shaped.x_offset + justification_left,
-                        y_advance: Em::zero(),
-                        y_offset: Em::zero(),
+                        // x_advance,
+                        // x_offset: shaped.x_offset + justification_left,
+                        // y_advance: Em::zero(),
+                        // y_offset: Em::zero(),
+                        x_advance: Em::zero(),
+                        x_offset: Em::zero(),
+                        y_advance: shaped.y_advance,
+                        y_offset: shaped.y_offset,
                         range: (shaped.range.start - range.start).saturating_as()
                             ..(shaped.range.end - range.start).saturating_as(),
                         span,
@@ -462,6 +469,12 @@ impl<'a> ShapedText<'a> {
     /// accounting for their individual scaling factors and other font metrics.
     pub fn width(&self) -> Abs {
         self.glyphs.iter().map(|g| g.x_advance.at(g.size)).sum()
+    }
+
+    /// Computes the height of a run of glyphs relative to the font size,
+    /// accounting for their individual scaling factors and other font metrics.
+    pub fn height(&self) -> Abs {
+        self.glyphs.iter().map(|g| g.y_advance.at(g.size)).sum()
     }
 
     /// Measure the top and bottom extent of this text.
@@ -600,6 +613,7 @@ impl<'a> ShapedText<'a> {
             let ttf = font.ttf();
             let glyph_id = ttf.glyph_index('-')?;
             let x_advance = font.to_em(ttf.glyph_hor_advance(glyph_id)?);
+            let y_advance = font.to_em(ttf.glyph_ver_advance(glyph_id)?);
             let size = base.styles.resolve(TextElem::size);
             let (c, text) = if soft { (SHY, SHY_STR) } else { (HYPHEN, HYPHEN_STR) };
 
@@ -616,6 +630,7 @@ impl<'a> ShapedText<'a> {
                     glyph_id: glyph_id.0,
                     x_advance,
                     x_offset: Em::zero(),
+                    y_advance,
                     y_offset: Em::zero(),
                     size,
                     adjustability: Adjustability::default(),
@@ -906,7 +921,9 @@ fn shape_segment<'a>(
     buffer.set_direction(match ctx.dir {
         Dir::LTR => rustybuzz::Direction::LeftToRight,
         Dir::RTL => rustybuzz::Direction::RightToLeft,
-        _ => unimplemented!("vertical text layout"),
+        Dir::TTB => rustybuzz::Direction::TopToBottom,
+        Dir::BTT => rustybuzz::Direction::BottomToTop,
+        // _ => unimplemented!("vertical text layout"),
     });
     buffer.guess_segment_properties();
 
@@ -1007,26 +1024,37 @@ fn shape_segment<'a>(
             let c = text[cluster..].chars().next().unwrap();
             let script = c.script();
             let x_advance = font.to_em(pos[i].x_advance);
-            ctx.glyphs.push(ShapedGlyph {
-                font: font.clone(),
-                glyph_id: info.glyph_id as u16,
-                // TODO: Don't ignore y_advance.
-                x_advance,
-                x_offset: font.to_em(pos[i].x_offset) + script_compensation,
-                y_offset: font.to_em(pos[i].y_offset) + script_shift,
-                size: scale.at(ctx.size),
-                adjustability: Adjustability::default(),
-                range: start..end,
-                safe_to_break: !info.unsafe_to_break(),
-                c,
-                is_justifiable: is_justifiable(
-                    c,
-                    script,
-                    x_advance,
-                    Adjustability::default().stretchability,
-                ),
-                script,
-            });
+            // let y_advance = font.to_em(pos[i].y_advance);
+            let y_advance = font.y_advance(info.glyph_id as u16);
+            println!(
+                "Font pos data - x_advance = {0}, y_advance = {1}",
+                pos[i].x_advance, pos[i].y_advance
+            );
+            match y_advance {
+                Some(y_adv) => {
+                    ctx.glyphs.push(ShapedGlyph {
+                        font: font.clone(),
+                        glyph_id: info.glyph_id as u16,
+                        x_advance,
+                        x_offset: font.to_em(pos[i].x_offset) + script_compensation,
+                        y_advance: y_adv,
+                        y_offset: font.to_em(pos[i].y_offset) + script_shift,
+                        size: scale.at(ctx.size),
+                        adjustability: Adjustability::default(),
+                        range: start..end,
+                        safe_to_break: !info.unsafe_to_break(),
+                        c,
+                        is_justifiable: is_justifiable(
+                            c,
+                            script,
+                            x_advance,
+                            Adjustability::default().stretchability,
+                        ),
+                        script,
+                    });
+                }
+                None => println!("It was None"),
+            }
         } else {
             // First, search for the end of the tofu sequence.
             let k = i;
@@ -1155,6 +1183,7 @@ pub fn create_shape_plan(
 /// Shape the text with tofus from the given font.
 fn shape_tofus(ctx: &mut ShapingContext, base: usize, text: &str, font: Font) {
     let x_advance = font.x_advance(0).unwrap_or_default();
+    let y_advance = font.y_advance(0).unwrap_or_default();
     let add_glyph = |(cluster, c): (usize, char)| {
         let start = base + cluster;
         let end = start + c.len_utf8();
@@ -1164,6 +1193,7 @@ fn shape_tofus(ctx: &mut ShapingContext, base: usize, text: &str, font: Font) {
             glyph_id: 0,
             x_advance,
             x_offset: Em::zero(),
+            y_advance,
             y_offset: Em::zero(),
             size: ctx.size,
             adjustability: Adjustability::default(),
