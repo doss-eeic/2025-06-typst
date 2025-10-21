@@ -20,7 +20,7 @@ use self::book::find_name;
 use crate::foundations::{Bytes, Cast};
 use crate::layout::{Abs, Em, Frame};
 use crate::text::{
-    BottomEdge, DEFAULT_SUBSCRIPT_METRICS, DEFAULT_SUPERSCRIPT_METRICS, TopEdge,
+    BottomEdge, DEFAULT_SUBSCRIPT_METRICS, DEFAULT_SUPERSCRIPT_METRICS, TopEdge, LeftEdge, RightEdge,
 };
 
 /// An OpenType font.
@@ -188,6 +188,48 @@ impl Font {
         };
 
         (top, bottom)
+    }
+
+    /// Resolve the left and right edges of text.
+    pub fn edges_vertical(
+        &self,
+        left_edge: LeftEdge,
+        right_edge: RightEdge,
+        font_size: Abs,
+        bounds: TextEdgeBounds,
+    ) -> (Abs, Abs) {
+        let cell = OnceCell::new();
+        let bbox = |gid, f: fn(ttf_parser::Rect) -> i16| {
+            cell.get_or_init(|| self.ttf().glyph_bounding_box(GlyphId(gid)))
+                .map(|bbox| self.to_em(f(bbox)).at(font_size))
+                .unwrap_or_default()
+        };
+
+        let left = match left_edge {
+            LeftEdge::Metric(metric) => match metric.try_into() {
+                Ok(metric) => self.metrics().horizontal(metric).at(font_size),
+                Err(_) => match bounds {
+                    TextEdgeBounds::Zero => Abs::zero(),
+                    TextEdgeBounds::Frame(frame) => frame.leading(),
+                    TextEdgeBounds::Glyph(gid) => bbox(gid, |b| b.x_min),
+                },
+            },
+            LeftEdge::Length(length) => length.at(font_size),
+        };
+
+        let right = match right_edge {
+            RightEdge::Metric(metric) => match metric.try_into() {
+                Ok(metric) => -self.metrics().horizontal(metric).at(font_size),
+                Err(_) => match bounds {
+                    TextEdgeBounds::Zero => Abs::zero(),
+                    TextEdgeBounds::Frame(frame) => frame.trailing(),
+                    TextEdgeBounds::Glyph(gid) => -bbox(gid, |b| b.x_min),
+                },
+            },
+            RightEdge::Length(length) => -length.at(font_size),
+        };
+
+        (left, right)
     }
 }
 
@@ -494,6 +536,14 @@ impl FontMetrics {
             VerticalFontMetric::Descender => self.descender,
         }
     }
+    /// Look up a horizontal metric.
+    pub fn horizontal(&self, metric: HorizontalFontMetric) -> Em {
+        match metric {
+            HorizontalFontMetric::LeftSideBearing => self.left_side_bearing,
+            HorizontalFontMetric::RightSideBearing => self.right_side_bearing,
+            HorizontalFontMetric::AdvanceWidth => self.advance_width,
+        }
+    }
 }
 
 /// Metrics for a decorative line.
@@ -592,6 +642,16 @@ pub enum VerticalFontMetric {
     /// The font's ascender, which typically exceeds the depth of all glyphs.
     Descender,
 }
+// Identifies a horizontal metric of a font.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Cast)]
+pub enum HorizontalFontMetric {
+    /// The font's left sidebearing.
+    LeftSideBearing,
+    /// The font's right sidebearing.
+    RightSideBearing,
+    /// The font's advance width.
+    AdvanceWidth,
+}
 
 /// Defines how to resolve a `Bounds` text edge.
 #[derive(Debug, Copy, Clone)]
@@ -603,3 +663,4 @@ pub enum TextEdgeBounds<'a> {
     /// Use the dimension of the given frame for the bounds.
     Frame(&'a Frame),
 }
+
