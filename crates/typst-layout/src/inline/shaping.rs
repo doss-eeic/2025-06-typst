@@ -782,7 +782,19 @@ pub fn shape_range<'a>(
     let lang = styles.get(TextElem::lang);
     let region = styles.get(TextElem::region);
     let mut process = |range: Range, level: BidiLevel| {
-        let dir = if level.is_ltr() { Dir::LTR } else { Dir::RTL };
+        let style_dir = styles.get(TextElem::dir);
+        let is_vertical = matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
+        let is_cj_lang = matches!(lang, Lang::CHINESE | Lang::JAPANESE);
+        let dir = if is_cj_lang && is_vertical {
+            match style_dir.0 {
+                Smart::Custom(Dir::TTB) => Dir::TTB,
+                Smart::Custom(Dir::BTT) => Dir::BTT,
+                _ => if level.is_ltr() { Dir::LTR } else { Dir::RTL },
+            }
+        } else {
+            if level.is_ltr() { Dir::LTR } else { Dir::RTL }
+        };
+        println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
         let shaped =
             shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
         items.push((range, Item::Text(shaped)));
@@ -1071,10 +1083,10 @@ fn shape_segment<'a>(
             let x_advance = font.to_em(pos[i].x_advance);
             // let y_advance = font.to_em(pos[i].y_advance);
             let y_advance = font.y_advance(info.glyph_id as u16);
-            println!(
-                "Font pos data - x_advance = {0}, y_advance = {1}",
-                pos[i].x_advance, pos[i].y_advance
-            );
+            // println!(
+            //     "Font pos data - x_advance = {0}, y_advance = {1}",
+            //     pos[i].x_advance, pos[i].y_advance
+            // );
             match y_advance {
                 Some(y_adv) => {
                     ctx.glyphs.push(ShapedGlyph {
