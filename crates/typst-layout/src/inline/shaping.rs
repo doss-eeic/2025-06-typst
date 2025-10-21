@@ -89,11 +89,6 @@ impl<'a> Glyphs<'a> {
         Self { inner: Cow::Owned(glyphs), kept: 0..len }
     }
 
-    /// Whether this glyph collection is using the owned representation.
-    pub fn is_owned(&self) -> bool {
-        matches!(self.inner, Cow::Owned(_))
-    }
-
     /// Clone the internal glyph data to make it modifiable. Should be avoided
     /// if possible on potentially borrowed glyphs as it can be expensive
     /// (benchmarks have shown ~10% slowdown on a text-heavy document if no
@@ -334,13 +329,14 @@ impl<'a> ShapedText<'a> {
         justification_ratio: f64,
         extra_justification: Abs,
     ) -> Frame {
-        let (top, bottom) = self.measure(engine);
+        // let (top, bottom) = self.measure(engine);
         // let size = Size::new(self.width(), top + bottom);
-        let size = Size::new(Abs::raw(100.0), Abs::raw(1000.0));
+        let (left, right) = self.measure_vertical(engine);
+        let size = Size::new(left + right, self.height());
 
         let mut offset = Abs::zero();
         let mut frame = Frame::soft(size);
-        frame.set_baseline(top);
+        frame.set_baseline(left);
 
         let size = self.styles.resolve(TextElem::size);
         let shift = self.styles.resolve(TextElem::baseline);
@@ -350,10 +346,10 @@ impl<'a> ShapedText<'a> {
         let span_offset = self.styles.get(TextElem::span_offset);
 
         let mut i = 0;
-        for ((font, y_offset, glyph_size), group) in self
+        for ((font, x_offset, glyph_size), group) in self
             .glyphs
             .all()
-            .group_by_key(|g| (g.font.clone(), g.y_offset, g.size))
+            .group_by_key(|g| (g.font.clone(), g.x_offset, g.size))
         {
             let mut range = group[0].range.clone();
             for glyph in group {
@@ -361,45 +357,54 @@ impl<'a> ShapedText<'a> {
                 range.end = range.end.max(glyph.range.end);
             }
 
-            let pos = Point::new(offset, top + shift - y_offset.at(size));
+            // let pos = Point::new(offset, left + shift - y_offset.at(size));
+            let pos = Point::new(left + shift - x_offset.at(size), offset);
             let glyphs: Vec<Glyph> = group
                 .iter()
                 .map(|shaped: &ShapedGlyph| {
-                    let adjustability_left = if justification_ratio < 0.0 {
-                        shaped.shrinkability().0
-                    } else {
-                        shaped.stretchability().0
-                    };
-                    let adjustability_right = if justification_ratio < 0.0 {
-                        shaped.shrinkability().1
-                    } else {
-                        shaped.stretchability().1
-                    };
+                    // Whether the glyph is _not_ trimmed end-of-line
+                    // whitespace. Trimmed whitespace has its advance width and
+                    // offset zeroed out and is not taken into account for
+                    // justification.
+                    let kept = self.glyphs.kept.contains(&i);
 
-                    let justification_left = adjustability_left * justification_ratio;
-                    let mut justification_right =
-                        adjustability_right * justification_ratio;
-                    if shaped.is_justifiable() {
-                        justification_right +=
-                            Em::from_abs(extra_justification, glyph_size)
-                    }
+                    let (x_advance, x_offset) = if kept {
+                        let adjustability_left = if justification_ratio < 0.0 {
+                            shaped.shrinkability().0
+                        } else {
+                            shaped.stretchability().0
+                        };
+                        let adjustability_right = if justification_ratio < 0.0 {
+                            shaped.shrinkability().1
+                        } else {
+                            shaped.stretchability().1
+                        };
 
-                    frame.size_mut().x += justification_left.at(glyph_size)
-                        + justification_right.at(glyph_size);
+                        let justification_left = adjustability_left * justification_ratio;
+                        let mut justification_right =
+                            adjustability_right * justification_ratio;
+                        if shaped.is_justifiable() {
+                            justification_right +=
+                                Em::from_abs(extra_justification, glyph_size)
+                        }
+
+                        frame.size_mut().x += justification_left.at(glyph_size)
+                            + justification_right.at(glyph_size);
+
+                        (
+                            shaped.x_advance + justification_left + justification_right,
+                            shaped.x_offset + justification_left,
+                        )
+                    } else {
+                        (Em::zero(), Em::zero())
+                    };
+                    i += 1;
 
                     // We may not be able to reach the offset completely if
                     // it exceeds u16, but better to have a roughly correct
                     // span offset than nothing.
                     let mut span = spans.span_at(shaped.range.start);
                     span.1 = span.1.saturating_add(span_offset.saturating_as());
-
-                    // Zero out the advance if the glyph was trimmed.
-                    let x_advance = if self.glyphs.kept.contains(&i) {
-                        shaped.x_advance + justification_left + justification_right
-                    } else {
-                        Em::zero()
-                    };
-                    i += 1;
 
                     // |<---- a Glyph ---->|
                     //  -->|ShapedGlyph|<--
@@ -422,7 +427,7 @@ impl<'a> ShapedText<'a> {
                     Glyph {
                         id: shaped.glyph_id,
                         // x_advance,
-                        // x_offset: shaped.x_offset + justification_left,
+                        // x_offset,
                         // y_advance: Em::zero(),
                         // y_offset: Em::zero(),
                         x_advance: Em::zero(),
@@ -514,6 +519,44 @@ impl<'a> ShapedText<'a> {
         }
 
         (top, bottom)
+    }
+
+    pub fn measure_vertical(&self, engine: &Engine) -> (Abs, Abs) {
+        let mut left = Abs::zero();
+        let mut right = Abs::zero();
+
+        let size = self.styles.resolve(TextElem::size);
+        let left_edge = self.styles.get(TextElem::left_edge);
+        let right_edge = self.styles.get(TextElem::right_edge);
+
+        // Expand left and right by reading the font's vertical metrics.
+        let mut expand = |font: &Font, bounds: TextEdgeBounds| {
+            let (l, r) = font.edges_vertical(left_edge, right_edge, size, bounds);
+            left.set_max(l);
+            right.set_max(r);
+        };
+
+        if self.glyphs.is_fully_empty() {
+            // When there are no glyphs, we just use the horizontal metrics of the
+            // first available font.
+            let world = engine.world;
+            for family in families(self.styles) {
+                if let Some(font) = world
+                    .book()
+                    .select(family.as_str(), self.variant)
+                    .and_then(|id| world.font(id))
+                {
+                    expand(&font, TextEdgeBounds::Zero);
+                    break;
+                }
+            }
+        } else {
+            for g in self.glyphs.iter() {
+                expand(&g.font, TextEdgeBounds::Glyph(g.glyph_id));
+            }
+        }
+
+        (left, right)
     }
 
     /// How many glyphs are in the text where we can insert additional
