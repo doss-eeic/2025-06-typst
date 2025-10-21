@@ -338,7 +338,6 @@ impl<'a> ShapedText<'a> {
         // let size = Size::new(self.width(), top + bottom);
         let (left, right) = self.measure_vertical(engine);
         let size = Size::new(left + right, self.height());
-        // let size = Size::new(Abs::raw(10000.0), Abs::raw(10000.0));
 
         let mut offset = Abs::zero();
         let mut frame = Frame::soft(size);
@@ -364,6 +363,7 @@ impl<'a> ShapedText<'a> {
             }
 
             let pos = Point::new(offset, left + shift - y_offset.at(size));
+            let pos = Point::new(left + shift - x_offset.at(size), offset);
             let glyphs: Vec<Glyph> = group
                 .iter()
                 .map(|shaped: &ShapedGlyph| {
