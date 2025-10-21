@@ -528,7 +528,7 @@ impl<'a> ShapedText<'a> {
 
         // Expand left and right by reading the font's vertical metrics.
         let mut expand = |font: &Font, bounds: TextEdgeBounds| {
-            let (l, r) = font.edges(left_edge, right_edge, size, bounds);
+            let (l, r) = font.edges_vertical(left_edge, right_edge, size, bounds);
             left.set_max(l);
             right.set_max(r);
         };

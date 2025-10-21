@@ -295,10 +295,8 @@ impl FontMetrics {
         let cap_height = ttf.capital_height().filter(|&h| h > 0).map_or(ascender, to_em);
         let x_height = ttf.x_height().filter(|&h| h > 0).map_or(ascender, to_em);
         let descender = to_em(ttf.typographic_descender().unwrap_or(ttf.descender()));
-        let left_side_bearing = ttf.glyph_hor_side_bearing(GlyphId(glyph_id)).unwrap_or(0);
-let right_side_bearing = ttf.glyph_hor_advance(GlyphId(glyph_id)).unwrap_or(0)
-    - ttf.glyph_bounding_box(GlyphId(glyph_id)).map(|bbox| bbox.width()).unwrap_or(0)
-    - left_side_bearing;
+        let left_side_bearing = Em::zero();
+        let right_side_bearing = Em::zero();
         let strikeout = ttf.strikeout_metrics();
         let underline = ttf.underline_metrics();
 
@@ -341,6 +339,8 @@ let right_side_bearing = ttf.glyph_hor_advance(GlyphId(glyph_id)).unwrap_or(0)
             cap_height,
             x_height,
             descender,
+            left_side_bearing,
+            right_side_bearing,
             strikethrough,
             underline,
             overline,
@@ -548,7 +548,7 @@ let right_side_bearing = ttf.glyph_hor_advance(GlyphId(glyph_id)).unwrap_or(0)
         match metric {
             HorizontalFontMetric::LeftSideBearing => self.left_side_bearing,
             HorizontalFontMetric::RightSideBearing => self.right_side_bearing,
-            HorizontalFontMetric::AdvanceWidth => self.advance_width,
+            HorizontalFontMetric::Ideographic => Em::zero(),
         }
     }
 }
@@ -656,8 +656,8 @@ pub enum HorizontalFontMetric {
     LeftSideBearing,
     /// The font's right sidebearing.
     RightSideBearing,
-    /// The font's advance width.
-    AdvanceWidth,
+    /// The ideographic advance, typically used for CJK fonts.
+    Ideographic,
 }
 
 /// Defines how to resolve a `Bounds` text edge.

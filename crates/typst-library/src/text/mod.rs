@@ -1174,8 +1174,6 @@ cast! {
 pub enum LeftEdgeMetric {
     /// The ideographic edge (for CJK vertical text).
     Ideographic,
-    /// The bounds edge (bounding box).
-    Bounds,
 }
 
 impl TryInto<HorizontalFontMetric> for LeftEdgeMetric {
@@ -1184,7 +1182,7 @@ impl TryInto<HorizontalFontMetric> for LeftEdgeMetric {
     fn try_into(self) -> Result<HorizontalFontMetric, Self::Error> {
         match self {
             Self::Ideographic => Ok(HorizontalFontMetric::Ideographic),
-            Self::Bounds => Ok(HorizontalFontMetric::Bounds),
+            _ => Err(()),
         }
     }
 }
@@ -1213,8 +1211,6 @@ cast! {
 pub enum RightEdgeMetric {
     /// The ideographic edge (for CJK vertical text).
     Ideographic,
-    /// The bounds edge (bounding box).
-    Bounds,
 }
 
 impl TryInto<HorizontalFontMetric> for RightEdgeMetric {
@@ -1223,7 +1219,7 @@ impl TryInto<HorizontalFontMetric> for RightEdgeMetric {
     fn try_into(self) -> Result<HorizontalFontMetric, Self::Error> {
         match self {
             Self::Ideographic => Ok(HorizontalFontMetric::Ideographic),
-            Self::Bounds => Ok(HorizontalFontMetric::Bounds),
+            _ => Err(()),
         }
     }
 }
