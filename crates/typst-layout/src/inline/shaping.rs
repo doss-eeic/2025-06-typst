@@ -351,10 +351,10 @@ impl<'a> ShapedText<'a> {
         let span_offset = self.styles.get(TextElem::span_offset);
 
         let mut i = 0;
-        for ((font, y_offset, glyph_size), group) in self
+        for ((font, x_offset, glyph_size), group) in self
             .glyphs
             .all()
-            .group_by_key(|g| (g.font.clone(), g.y_offset, g.size))
+            .group_by_key(|g| (g.font.clone(), g.x_offset, g.size))
         {
             let mut range = group[0].range.clone();
             for glyph in group {
@@ -362,7 +362,7 @@ impl<'a> ShapedText<'a> {
                 range.end = range.end.max(glyph.range.end);
             }
 
-            let pos = Point::new(offset, left + shift - y_offset.at(size));
+            // let pos = Point::new(offset, left + shift - y_offset.at(size));
             let pos = Point::new(left + shift - x_offset.at(size), offset);
             let glyphs: Vec<Glyph> = group
                 .iter()
