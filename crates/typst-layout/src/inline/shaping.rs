@@ -336,7 +336,7 @@ impl<'a> ShapedText<'a> {
     ) -> Frame {
         let (top, bottom) = self.measure(engine);
         // let size = Size::new(self.width(), top + bottom);
-        let size = Size::new(Abs::raw(10000.0), Abs::raw(10000.0));
+        let size = Size::new(Abs::raw(100.0), Abs::raw(1000.0));
 
         let mut offset = Abs::zero();
         let mut frame = Frame::soft(size);

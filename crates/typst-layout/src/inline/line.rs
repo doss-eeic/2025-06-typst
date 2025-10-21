@@ -189,7 +189,8 @@ pub fn line<'a>(
     adjust_glyph_stretch_at_line_end(p, &mut items);
 
     // Compute the line's width.
-    let width = items.iter().map(Item::natural_width).sum();
+    // let width = items.iter().map(Item::natural_width).sum();
+    let width = items.iter().map(Item::natural_height).sum();
 
     Line { items, width, justify, dash }
 }
