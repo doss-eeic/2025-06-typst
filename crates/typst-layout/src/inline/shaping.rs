@@ -336,7 +336,7 @@ impl<'a> ShapedText<'a> {
 
         let mut offset = Abs::zero();
         let mut frame = Frame::soft(size);
-        frame.set_baseline(left);
+        frame.set_baseline(right);
 
         let size = self.styles.resolve(TextElem::size);
         let shift = self.styles.resolve(TextElem::baseline);
@@ -452,18 +452,20 @@ impl<'a> ShapedText<'a> {
                 glyphs,
             };
 
-            let width = item.width();
+            // let width = item.width();
+            let height = item.height();
             if decos.is_empty() {
                 frame.push(pos, FrameItem::Text(item));
             } else {
                 // Apply line decorations.
-                frame.push(pos, FrameItem::Text(item.clone()));
-                for deco in &decos {
-                    decorate(&mut frame, deco, &item, width, shift, pos);
-                }
+                // frame.push(pos, FrameItem::Text(item.clone()));
+                // for deco in &decos {
+                //     decorate(&mut frame, deco, &item, width, shift, pos);
+                // }
             }
 
-            offset += width;
+            // offset += width;
+            offset += height;
         }
 
         frame.modify_text(self.styles);
