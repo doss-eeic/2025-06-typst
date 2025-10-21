@@ -784,6 +784,7 @@ pub fn shape_range<'a>(
     let region = styles.get(TextElem::region);
     let mut process = |range: Range, level: BidiLevel| {
         let style_dir = styles.get(TextElem::dir);
+<<<<<<< HEAD
         let wants_vertical = matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
 
         // Decide whether this run is CJ (Chinese/Japanese) by peeking at the first character
@@ -794,11 +795,17 @@ pub fn shape_range<'a>(
             .map_or(false, |c| is_of_cj_script(c));
             
         let dir = if is_cj && wants_vertical {
+=======
+        let is_vertical = matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
+        let is_cj_lang = matches!(lang, Lang::CHINESE | Lang::JAPANESE);
+        let dir = if is_cj_lang && is_vertical {
+>>>>>>> 4f1e149e (switch to ttb if using japanese or chinese)
             match style_dir.0 {
                 Smart::Custom(Dir::TTB) => Dir::TTB,
                 Smart::Custom(Dir::BTT) => Dir::BTT,
                 _ => if level.is_ltr() { Dir::LTR } else { Dir::RTL },
             }
+<<<<<<< HEAD
         } else if level.is_ltr() {
             Dir::LTR
         } else {
@@ -807,6 +814,14 @@ pub fn shape_range<'a>(
 
         println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
         let shaped = shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
+=======
+        } else {
+            if level.is_ltr() { Dir::LTR } else { Dir::RTL }
+        };
+        println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
+        let shaped =
+            shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
+>>>>>>> 4f1e149e (switch to ttb if using japanese or chinese)
         items.push((range, Item::Text(shaped)));
     };
 
