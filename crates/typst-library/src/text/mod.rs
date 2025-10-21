@@ -1178,6 +1178,17 @@ pub enum LeftEdgeMetric {
     Bounds,
 }
 
+impl TryInto<HorizontalFontMetric> for LeftEdgeMetric {
+    type Error = ();
+
+    fn try_into(self) -> Result<HorizontalFontMetric, Self::Error> {
+        match self {
+            Self::Ideographic => Ok(HorizontalFontMetric::Ideographic),
+            Self::Bounds => Ok(HorizontalFontMetric::Bounds),
+        }
+    }
+}
+
 /// Specifies the right edge of text (for vertical layout).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RightEdge {
@@ -1204,6 +1215,17 @@ pub enum RightEdgeMetric {
     Ideographic,
     /// The bounds edge (bounding box).
     Bounds,
+}
+
+impl TryInto<HorizontalFontMetric> for RightEdgeMetric {
+    type Error = ();
+
+    fn try_into(self) -> Result<HorizontalFontMetric, Self::Error> {
+        match self {
+            Self::Ideographic => Ok(HorizontalFontMetric::Ideographic),
+            Self::Bounds => Ok(HorizontalFontMetric::Bounds),
+        }
+    }
 }
 
 /// The direction of text and inline objects in their line.

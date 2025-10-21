@@ -267,6 +267,10 @@ pub struct FontMetrics {
     pub x_height: Em,
     /// The distance from the baseline to the typographic descender.
     pub descender: Em,
+    /// The distance from the baseline to the left sidebearing.
+    pub left_side_bearing: Em,
+    /// The distance from the baseline to the right sidebearing.
+    pub right_side_bearing: Em,
     /// Recommended metrics for a strikethrough line.
     pub strikethrough: LineMetrics,
     /// Recommended metrics for an underline.
@@ -291,7 +295,10 @@ impl FontMetrics {
         let cap_height = ttf.capital_height().filter(|&h| h > 0).map_or(ascender, to_em);
         let x_height = ttf.x_height().filter(|&h| h > 0).map_or(ascender, to_em);
         let descender = to_em(ttf.typographic_descender().unwrap_or(ttf.descender()));
-
+        let left_side_bearing = ttf.glyph_hor_side_bearing(GlyphId(glyph_id)).unwrap_or(0);
+let right_side_bearing = ttf.glyph_hor_advance(GlyphId(glyph_id)).unwrap_or(0)
+    - ttf.glyph_bounding_box(GlyphId(glyph_id)).map(|bbox| bbox.width()).unwrap_or(0)
+    - left_side_bearing;
         let strikeout = ttf.strikeout_metrics();
         let underline = ttf.underline_metrics();
 
