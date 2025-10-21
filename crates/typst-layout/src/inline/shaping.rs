@@ -329,13 +329,14 @@ impl<'a> ShapedText<'a> {
         justification_ratio: f64,
         extra_justification: Abs,
     ) -> Frame {
-        let (top, bottom) = self.measure(engine);
+        // let (top, bottom) = self.measure(engine);
         // let size = Size::new(self.width(), top + bottom);
-        let size = Size::new(Abs::raw(10000.0), Abs::raw(10000.0));
+        let (left, right) = self.measure_vertical(engine);
+        let size = Size::new(left + right, self.height());
 
         let mut offset = Abs::zero();
         let mut frame = Frame::soft(size);
-        frame.set_baseline(top);
+        frame.set_baseline(left);
 
         let size = self.styles.resolve(TextElem::size);
         let shift = self.styles.resolve(TextElem::baseline);
@@ -345,10 +346,10 @@ impl<'a> ShapedText<'a> {
         let span_offset = self.styles.get(TextElem::span_offset);
 
         let mut i = 0;
-        for ((font, y_offset, glyph_size), group) in self
+        for ((font, x_offset, glyph_size), group) in self
             .glyphs
             .all()
-            .group_by_key(|g| (g.font.clone(), g.y_offset, g.size))
+            .group_by_key(|g| (g.font.clone(), g.x_offset, g.size))
         {
             let mut range = group[0].range.clone();
             for glyph in group {
@@ -356,7 +357,8 @@ impl<'a> ShapedText<'a> {
                 range.end = range.end.max(glyph.range.end);
             }
 
-            let pos = Point::new(offset, top + shift - y_offset.at(size));
+            // let pos = Point::new(offset, left + shift - y_offset.at(size));
+            let pos = Point::new(left + shift - x_offset.at(size), offset);
             let glyphs: Vec<Glyph> = group
                 .iter()
                 .map(|shaped: &ShapedGlyph| {
@@ -517,6 +519,44 @@ impl<'a> ShapedText<'a> {
         }
 
         (top, bottom)
+    }
+
+    pub fn measure_vertical(&self, engine: &Engine) -> (Abs, Abs) {
+        let mut left = Abs::zero();
+        let mut right = Abs::zero();
+
+        let size = self.styles.resolve(TextElem::size);
+        let left_edge = self.styles.get(TextElem::left_edge);
+        let right_edge = self.styles.get(TextElem::right_edge);
+
+        // Expand left and right by reading the font's vertical metrics.
+        let mut expand = |font: &Font, bounds: TextEdgeBounds| {
+            let (l, r) = font.edges_vertical(left_edge, right_edge, size, bounds);
+            left.set_max(l);
+            right.set_max(r);
+        };
+
+        if self.glyphs.is_fully_empty() {
+            // When there are no glyphs, we just use the horizontal metrics of the
+            // first available font.
+            let world = engine.world;
+            for family in families(self.styles) {
+                if let Some(font) = world
+                    .book()
+                    .select(family.as_str(), self.variant)
+                    .and_then(|id| world.font(id))
+                {
+                    expand(&font, TextEdgeBounds::Zero);
+                    break;
+                }
+            }
+        } else {
+            for g in self.glyphs.iter() {
+                expand(&g.font, TextEdgeBounds::Glyph(g.glyph_id));
+            }
+        }
+
+        (left, right)
     }
 
     /// How many glyphs are in the text where we can insert additional

@@ -136,6 +136,16 @@ impl Frame {
         self.size.y - self.baseline()
     }
 
+    /// The horizontal position of the frame's leading edge (for vertical layout).
+    pub fn leading(&self) -> Abs {
+        Abs::zero()
+    }
+
+    /// The horizontal position of the frame's trailing edge (for vertical layout).
+    pub fn trailing(&self) -> Abs {
+        self.size.x
+    }
+
     /// An iterator over the items inside this frame alongside their positions
     /// relative to the top-left of the frame.
     pub fn items(&self) -> std::slice::Iter<'_, (Point, FrameItem)> {
