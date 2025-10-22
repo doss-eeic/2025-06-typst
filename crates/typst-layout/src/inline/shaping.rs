@@ -19,6 +19,7 @@ use typst_library::text::{
 use typst_utils::SliceExt;
 use unicode_bidi::{BidiInfo, Level as BidiLevel};
 use unicode_script::{Script, UnicodeScript};
+use unicode_width::UnicodeWidthChar;
 
 use super::{Item, Range, SpanMapper, decorate};
 use crate::modifiers::FrameModifyText;
@@ -783,20 +784,29 @@ pub fn shape_range<'a>(
     let region = styles.get(TextElem::region);
     let mut process = |range: Range, level: BidiLevel| {
         let style_dir = styles.get(TextElem::dir);
-        let is_vertical = matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
-        let is_cj_lang = matches!(lang, Lang::CHINESE | Lang::JAPANESE);
-        let dir = if is_cj_lang && is_vertical {
+        let wants_vertical = matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
+
+        // Decide whether this run is CJ (Chinese/Japanese) by peeking at the first character
+        // in the run using `is_of_cj_script`.
+        let is_cj = text[range.start..]
+            .chars()
+            .next()
+            .map_or(false, |c| is_of_cj_script(c));
+            
+        let dir = if is_cj && wants_vertical {
             match style_dir.0 {
                 Smart::Custom(Dir::TTB) => Dir::TTB,
                 Smart::Custom(Dir::BTT) => Dir::BTT,
                 _ => if level.is_ltr() { Dir::LTR } else { Dir::RTL },
             }
+        } else if level.is_ltr() {
+            Dir::LTR
         } else {
-            if level.is_ltr() { Dir::LTR } else { Dir::RTL }
+            Dir::RTL
         };
+
         println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
-        let shaped =
-            shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
+        let shaped = shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
         items.push((range, Item::Text(shaped)));
     };
 
@@ -1432,7 +1442,11 @@ pub fn is_of_cj_script(c: char) -> bool {
 fn is_cj_script(c: char, script: Script) -> bool {
     use Script::*;
     // U+30FC: Katakana-Hiragana Prolonged Sound Mark
-    matches!(script, Hiragana | Katakana | Han) || c == '\u{30FC}'
+
+    matches!(script, Hiragana | Katakana | Han) || c == '\u{30FC}' || is_fullwidth(c)
+}
+fn is_fullwidth(c: char) -> bool {
+    UnicodeWidthChar::width(c).unwrap_or(0) >= 2
 }
 
 /// See <https://www.w3.org/TR/clreq/#punctuation_width_adjustment>
