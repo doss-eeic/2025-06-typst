@@ -785,6 +785,9 @@ pub fn shape_range<'a>(
     let mut process = |range: Range, level: BidiLevel| {
         let style_dir = styles.get(TextElem::dir);
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> d403d4f8 (changed is_cj deicision based on the first character)
         let wants_vertical = matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
 
         // Decide whether this run is CJ (Chinese/Japanese) by peeking at the first character
@@ -795,16 +798,20 @@ pub fn shape_range<'a>(
             .map_or(false, |c| is_of_cj_script(c));
             
         let dir = if is_cj && wants_vertical {
+<<<<<<< HEAD
 =======
         let is_vertical = matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
         let is_cj_lang = matches!(lang, Lang::CHINESE | Lang::JAPANESE);
         let dir = if is_cj_lang && is_vertical {
 >>>>>>> 4f1e149e (switch to ttb if using japanese or chinese)
+=======
+>>>>>>> d403d4f8 (changed is_cj deicision based on the first character)
             match style_dir.0 {
                 Smart::Custom(Dir::TTB) => Dir::TTB,
                 Smart::Custom(Dir::BTT) => Dir::BTT,
                 _ => if level.is_ltr() { Dir::LTR } else { Dir::RTL },
             }
+<<<<<<< HEAD
 <<<<<<< HEAD
         } else if level.is_ltr() {
             Dir::LTR
@@ -815,13 +822,22 @@ pub fn shape_range<'a>(
         println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
         let shaped = shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
 =======
+=======
+        } else if level.is_ltr() {
+            Dir::LTR
+>>>>>>> d403d4f8 (changed is_cj deicision based on the first character)
         } else {
-            if level.is_ltr() { Dir::LTR } else { Dir::RTL }
+            Dir::RTL
         };
+
         println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
+<<<<<<< HEAD
         let shaped =
             shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
 >>>>>>> 4f1e149e (switch to ttb if using japanese or chinese)
+=======
+        let shaped = shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
+>>>>>>> d403d4f8 (changed is_cj deicision based on the first character)
         items.push((range, Item::Text(shaped)));
     };
 
