@@ -163,7 +163,8 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             return;
         }
 
-        self.regions.size.y -= amount;
+        // self.regions.size.y -= amount;
+        self.regions.size.x -= amount;
         self.items.push(Item::Abs(amount, weakness));
     }
 
@@ -182,7 +183,8 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                     if weakness <= prev_weakness
                         && (weakness < prev_weakness || amount > prev_amount)
                     {
-                        self.regions.size.y -= amount - prev_amount;
+                        // self.regions.size.y -= amount - prev_amount;
+                        self.regions.size.x -= amount - prev_amount;
                         *item = Item::Abs(amount, weakness);
                     }
                     return false;
@@ -200,7 +202,8 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         for (i, item) in self.items.iter().enumerate().rev() {
             match *item {
                 Item::Abs(amount, 1..) => {
-                    self.regions.size.y += amount;
+                    // self.regions.size.y += amount;
+                    self.regions.size.x += amount;
                     self.items.remove(i);
                     break;
                 }
@@ -226,7 +229,10 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
     fn line(&mut self, line: &'b LineChild) -> FlowResult<()> {
         // If the line doesn't fit and a followup region may improve things,
         // finish the region.
-        if !self.regions.size.y.fits(line.frame.height()) && self.regions.may_progress() {
+        // if !self.regions.size.y.fits(line.frame.height()) && self.regions.may_progress() {
+        //     return Err(Stop::Finish(false));
+        // }
+        if !self.regions.size.x.fits(line.frame.width()) && self.regions.may_progress() {
             return Err(Stop::Finish(false));
         }
 
@@ -234,12 +240,18 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         // following lines grouped by widow/orphan prevention, does not fit into
         // the current region, but does fit into the next region, finish the
         // region.
-        if !self.regions.size.y.fits(line.need)
+        // if !self.regions.size.y.fits(line.need)
+        //     && self
+        //         .regions
+        //         .iter()
+        //         .nth(1)
+        //         .is_some_and(|region| region.y.fits(line.need))
+        if !self.regions.size.x.fits(line.need)
             && self
                 .regions
                 .iter()
                 .nth(1)
-                .is_some_and(|region| region.y.fits(line.need))
+                .is_some_and(|region| region.x.fits(line.need))
         {
             return Err(Stop::Finish(false));
         }
@@ -266,7 +278,10 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
 
         // If the block doesn't fit and a followup region may improve things,
         // finish the region.
-        if !self.regions.size.y.fits(frame.height()) && self.regions.may_progress() {
+        // if !self.regions.size.y.fits(frame.height()) && self.regions.may_progress() {
+        //     return Err(Stop::Finish(false));
+        // }
+        if !self.regions.size.x.fits(frame.width()) && self.regions.may_progress() {
             return Err(Stop::Finish(false));
         }
 
@@ -378,7 +393,8 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         )?;
 
         // Push an item for the frame.
-        self.regions.size.y -= frame.height();
+        // self.regions.size.y -= frame.height();
+        self.regions.size.x -= frame.width();
         self.flush_tags();
         self.items.push(Item::Frame(frame, align));
         Ok(())
@@ -393,14 +409,16 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             // spacing temporarily available again because it can collapse if it
             // ends up at a break due to the float.
             let weak_spacing = self.weak_spacing();
-            self.regions.size.y += weak_spacing;
+            // self.regions.size.y += weak_spacing;
+            self.regions.size.x += weak_spacing;
             self.composer.float(
                 placed,
                 &self.regions,
                 self.items.iter().any(|item| matches!(item, Item::Frame(..))),
                 true,
             )?;
-            self.regions.size.y -= weak_spacing;
+            // self.regions.size.y -= weak_spacing;
+            self.regions.size.x -= weak_spacing;
         } else {
             let frame = placed.layout(self.composer.engine, self.regions.base())?;
             self.composer
@@ -464,16 +482,30 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         let mut has_fr_child = false;
 
         // Determine the amount of used space and the sum of fractionals.
+        // for item in &self.items {
+        //     match item {
+        //         Item::Abs(v, _) => used.y += *v,
+        //         Item::Fr(v, child) => {
+        //             frs += *v;
+        //             has_fr_child |= child.is_some();
+        //         }
+        //         Item::Frame(frame, _) => {
+        //             used.y += frame.height();
+        //             used.x.set_max(frame.width());
+        //         }
+        //         Item::Tag(_) | Item::Placed(..) => {}
+        //     }
+        // }
         for item in &self.items {
             match item {
-                Item::Abs(v, _) => used.y += *v,
+                Item::Abs(v, _) => used.x += *v,
                 Item::Fr(v, child) => {
                     frs += *v;
                     has_fr_child |= child.is_some();
                 }
                 Item::Frame(frame, _) => {
-                    used.y += frame.height();
-                    used.x.set_max(frame.width());
+                    used.x += frame.width();
+                    used.y.set_max(frame.height());
                 }
                 Item::Tag(_) | Item::Placed(..) => {}
             }
@@ -481,9 +513,13 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
 
         // When we have fractional spacing, occupy the remaining space with it.
         let mut fr_space = Abs::zero();
-        if frs.get() > 0.0 && region.size.y.is_finite() {
-            fr_space = region.size.y - used.y;
-            used.y = region.size.y;
+        // if frs.get() > 0.0 && region.size.y.is_finite() {
+        //     fr_space = region.size.y - used.y;
+        //     used.y = region.size.y;
+        // }
+        if frs.get() > 0.0 && region.size.x.is_finite() {
+            fr_space = region.size.x - used.x;
+            used.x = region.size.x;
         }
 
         // Lay out fractionally sized blocks.
@@ -492,21 +528,28 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             for item in &self.items {
                 let Item::Fr(v, Some(single)) = item else { continue };
                 let length = v.share(frs, fr_space);
-                let pod = Region::new(Size::new(region.size.x, length), region.expand);
+                // let pod = Region::new(Size::new(region.size.x, length), region.expand);
+                let pod = Region::new(Size::new(length, region.size.y), region.expand);
                 let frame = single.layout(self.composer.engine, pod)?;
-                used.x.set_max(frame.width());
+                // used.x.set_max(frame.width());
+                used.y.set_max(frame.height());
                 fr_frames.push(frame);
             }
         }
 
         // Also consider the width of insertions for alignment.
-        if !region.expand.x {
-            used.x.set_max(self.composer.insertion_width());
+        // if !region.expand.x {
+        //     used.x.set_max(self.composer.insertion_width());
+        // }
+        // TODO: add insertion_height
+        if !region.expand.y {
+            used.y.set_max(self.composer.insertion_width());
         }
 
         // Determine the region's size.
         let size = region.expand.select(region.size, used.min(region.size));
-        let free = size.y - used.y;
+        // let free = size.y - used.y;
+        let free = size.x - used.x;
 
         let mut output = Frame::soft(size);
         let mut ruler = FixedAlignment::Start;
@@ -517,8 +560,10 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         for item in self.items {
             match item {
                 Item::Tag(tag) => {
-                    let y = offset + ruler.position(free);
-                    let pos = Point::with_y(y);
+                    // let y = offset + ruler.position(free);
+                    // let pos = Point::with_y(y);
+                    let x = offset + ruler.position(free);
+                    let pos = Point::with_x(x);
                     output.push(pos, FrameItem::Tag(tag.clone()));
                 }
                 Item::Abs(v, _) => {
@@ -528,23 +573,37 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                     let length = v.share(frs, fr_space);
                     if let Some(single) = single {
                         let frame = fr_frames.next().unwrap();
-                        let x = single.align.x.position(size.x - frame.width());
-                        let pos = Point::new(x, offset);
+                        // let x = single.align.x.position(size.x - frame.width());
+                        // let pos = Point::new(x, offset);
+                        let y = single.align.y.position(size.y - frame.height());
+                        let pos = Point::new(offset, y);
                         output.push_frame(pos, frame);
                     }
                     offset += length;
                 }
                 Item::Frame(frame, align) => {
-                    ruler = ruler.max(align.y);
+                    // ruler = ruler.max(align.y);
 
-                    let x = align.x.position(size.x - frame.width());
-                    let y = offset + ruler.position(free);
+                    // let x = align.x.position(size.x - frame.width());
+                    // let y = offset + ruler.position(free);
+                    // let pos = Point::new(x, y);
+                    // offset += frame.height();
+
+                    ruler = ruler.max(align.x);
+
+                    let x = offset + ruler.position(free);
+                    let y = align.y.position(size.y - frame.height());
                     let pos = Point::new(x, y);
-                    offset += frame.height();
+                    offset += frame.width();
 
                     output.push_frame(pos, frame);
                 }
                 Item::Placed(frame, placed) => {
+                    // let x = placed.align_x.position(size.x - frame.width());
+                    // let y = match placed.align_y.unwrap_or_default() {
+                    //     Some(align) => align.position(size.y - frame.height()),
+                    //     _ => offset + ruler.position(free),
+                    // };
                     let x = placed.align_x.position(size.x - frame.width());
                     let y = match placed.align_y.unwrap_or_default() {
                         Some(align) => align.position(size.y - frame.height()),

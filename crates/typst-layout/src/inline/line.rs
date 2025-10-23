@@ -32,8 +32,8 @@ const LINE_SEPARATOR: char = '\u{2028}'; // We use LS to distinguish justified b
 pub struct Line<'a> {
     /// The items the line is made of.
     pub items: Items<'a>,
-    /// The exact natural width of the line.
-    pub width: Abs,
+    /// The exact natural length of the line.
+    pub length: Abs,
     /// Whether the line should be justified.
     pub justify: bool,
     /// Whether the line ends with a hyphen or dash, either naturally or through
@@ -46,7 +46,7 @@ impl Line<'_> {
     pub fn empty() -> Self {
         Self {
             items: Items::new(),
-            width: Abs::zero(),
+            length: Abs::zero(),
             justify: false,
             dash: None,
         }
@@ -190,9 +190,9 @@ pub fn line<'a>(
 
     // Compute the line's width.
     // let width = items.iter().map(Item::natural_width).sum();
-    let width = items.iter().map(Item::natural_height).sum();
+    let length = items.iter().map(Item::natural_height).sum();
 
-    Line { items, width, justify, dash }
+    Line { items, length, justify, dash }
 }
 
 /// Collects / reshapes all items for the line with the given `range`.
@@ -485,11 +485,11 @@ pub fn commit(
     engine: &mut Engine,
     p: &Preparation,
     line: &Line,
-    width: Abs,
+    length: Abs,
     full: Abs,
     locator: &mut SplitLocator<'_>,
 ) -> SourceResult<Frame> {
-    let mut remaining = width - line.width - p.config.hanging_indent;
+    let mut remaining = length - line.length - p.config.hanging_indent;
     let mut offset = Abs::zero();
 
     // We always build the line from left to right. In an LTR paragraph, we must
@@ -506,7 +506,8 @@ pub fn commit(
         && text.styles.get(TextElem::overhang)
         && (line.items.len() > 1 || text.glyphs.len() > 1)
     {
-        let amount = overhang(glyph.c) * glyph.x_advance.at(glyph.size);
+        // let amount = overhang(glyph.c) * glyph.x_advance.at(glyph.size);
+        let amount = overhang(glyph.c) * glyph.y_advance.at(glyph.size);
         offset -= amount;
         remaining += amount;
     }
@@ -518,7 +519,8 @@ pub fn commit(
         && text.styles.get(TextElem::overhang)
         && (line.items.len() > 1 || text.glyphs.len() > 1)
     {
-        let amount = overhang(glyph.c) * glyph.x_advance.at(glyph.size);
+        // let amount = overhang(glyph.c) * glyph.x_advance.at(glyph.size);
+        let amount = overhang(glyph.c) * glyph.y_advance.at(glyph.size);
         remaining += amount;
     }
 
@@ -552,18 +554,25 @@ pub fn commit(
         }
     }
 
-    let mut top = Abs::zero();
-    let mut bottom = Abs::zero();
+    // let mut top = Abs::zero();
+    // let mut bottom = Abs::zero();
+    let mut left = Abs::zero();
+    let mut right = Abs::zero();
 
     // Build the frames and determine the height and baseline.
     let mut frames = vec![];
     for &(idx, ref item) in line.items.indexed_iter() {
         let mut push = |offset: &mut Abs, frame: Frame, idx: LogicalIndex| {
-            let width = frame.width();
-            top.set_max(frame.baseline());
-            bottom.set_max(frame.size().y - frame.baseline());
+            // let width = frame.width();
+            // top.set_max(frame.baseline());
+            // bottom.set_max(frame.size().y - frame.baseline());
+            // frames.push((*offset, frame, idx));
+            // *offset += width;
+            let height = frame.height();
+            left.set_max(frame.baseline());
+            right.set_max(frame.size().x - frame.baseline());
             frames.push((*offset, frame, idx));
-            *offset += width;
+            *offset += height;
         };
 
         match &**item {
@@ -609,12 +618,15 @@ pub fn commit(
         remaining = Abs::zero();
     }
 
-    let size = Size::new(width, top + bottom);
+    // let size = Size::new(width, top + bottom);
+    let size = Size::new(left + right, length);
     let mut output = Frame::soft(size);
-    output.set_baseline(top);
+    // output.set_baseline(top);
+    output.set_baseline(right);
 
     if let Some(marker) = &p.config.numbering_marker {
-        add_par_line_marker(&mut output, marker, engine, locator, top);
+        // add_par_line_marker(&mut output, marker, engine, locator, top);
+        add_par_line_marker(&mut output, marker, engine, locator, right);
     }
 
     // Ensure that the final frame's items are in logical order rather than in
@@ -624,8 +636,10 @@ pub fn commit(
 
     // Construct the line's frame.
     for (offset, frame, _) in frames {
-        let x = offset + p.config.align.position(remaining);
-        let y = top - frame.baseline();
+        // let x = offset + p.config.align.position(remaining);
+        // let y = top - frame.baseline();
+        let x = right - frame.baseline();
+        let y = offset + p.config.align.position(remaining);
         output.push_frame(Point::new(x, y), frame);
     }
 
