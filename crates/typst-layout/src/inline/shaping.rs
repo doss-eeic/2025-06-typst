@@ -19,6 +19,7 @@ use typst_library::text::{
 use typst_utils::SliceExt;
 use unicode_bidi::{BidiInfo, Level as BidiLevel};
 use unicode_script::{Script, UnicodeScript};
+use unicode_width::UnicodeWidthChar;
 
 use super::{Item, Range, SpanMapper, decorate};
 use crate::modifiers::FrameModifyText;
@@ -336,7 +337,7 @@ impl<'a> ShapedText<'a> {
 
         let mut offset = Abs::zero();
         let mut frame = Frame::soft(size);
-        frame.set_baseline(left);
+        frame.set_baseline(right);
 
         let size = self.styles.resolve(TextElem::size);
         let shift = self.styles.resolve(TextElem::baseline);
@@ -452,18 +453,20 @@ impl<'a> ShapedText<'a> {
                 glyphs,
             };
 
-            let width = item.width();
+            // let width = item.width();
+            let height = item.height();
             if decos.is_empty() {
                 frame.push(pos, FrameItem::Text(item));
             } else {
                 // Apply line decorations.
-                frame.push(pos, FrameItem::Text(item.clone()));
-                for deco in &decos {
-                    decorate(&mut frame, deco, &item, width, shift, pos);
-                }
+                // frame.push(pos, FrameItem::Text(item.clone()));
+                // for deco in &decos {
+                //     decorate(&mut frame, deco, &item, width, shift, pos);
+                // }
             }
 
-            offset += width;
+            // offset += width;
+            offset += height;
         }
 
         frame.modify_text(self.styles);
@@ -780,9 +783,30 @@ pub fn shape_range<'a>(
     let lang = styles.get(TextElem::lang);
     let region = styles.get(TextElem::region);
     let mut process = |range: Range, level: BidiLevel| {
-        let dir = if level.is_ltr() { Dir::LTR } else { Dir::RTL };
-        let shaped =
-            shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
+        let style_dir = styles.get(TextElem::dir);
+        let wants_vertical = matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
+
+        // Decide whether this run is CJ (Chinese/Japanese) by peeking at the first character
+        // in the run using `is_of_cj_script`.
+        let is_cj = text[range.start..]
+            .chars()
+            .next()
+            .map_or(false, |c| is_of_cj_script(c));
+            
+        let dir = if is_cj && wants_vertical {
+            match style_dir.0 {
+                Smart::Custom(Dir::TTB) => Dir::TTB,
+                Smart::Custom(Dir::BTT) => Dir::BTT,
+                _ => if level.is_ltr() { Dir::LTR } else { Dir::RTL },
+            }
+        } else if level.is_ltr() {
+            Dir::LTR
+        } else {
+            Dir::RTL
+        };
+
+        println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
+        let shaped = shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
         items.push((range, Item::Text(shaped)));
     };
 
@@ -1069,10 +1093,10 @@ fn shape_segment<'a>(
             let x_advance = font.to_em(pos[i].x_advance);
             // let y_advance = font.to_em(pos[i].y_advance);
             let y_advance = font.y_advance(info.glyph_id as u16);
-            println!(
-                "Font pos data - x_advance = {0}, y_advance = {1}",
-                pos[i].x_advance, pos[i].y_advance
-            );
+            // println!(
+            //     "Font pos data - x_advance = {0}, y_advance = {1}",
+            //     pos[i].x_advance, pos[i].y_advance
+            // );
             match y_advance {
                 Some(y_adv) => {
                     ctx.glyphs.push(ShapedGlyph {
@@ -1418,7 +1442,11 @@ pub fn is_of_cj_script(c: char) -> bool {
 fn is_cj_script(c: char, script: Script) -> bool {
     use Script::*;
     // U+30FC: Katakana-Hiragana Prolonged Sound Mark
-    matches!(script, Hiragana | Katakana | Han) || c == '\u{30FC}'
+
+    matches!(script, Hiragana | Katakana | Han) || c == '\u{30FC}' || is_fullwidth(c)
+}
+fn is_fullwidth(c: char) -> bool {
+    UnicodeWidthChar::width(c).unwrap_or(0) >= 2
 }
 
 /// See <https://www.w3.org/TR/clreq/#punctuation_width_adjustment>
