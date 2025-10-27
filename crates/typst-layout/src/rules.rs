@@ -35,25 +35,6 @@ use typst_library::visualize::{
 };
 use typst_utils::{Get, Numeric};
 
-/// Resolve the paragraph `leading` as a concrete `Length`.
-///
-/// `ParElem::leading` is a `Smart<Length>`: when it is `Smart::Custom(l)`,
-/// we return that `l`. When it is `Smart::Auto`, pick a default depending
-/// on the paragraph direction (vertical vs horizontal).
-pub fn par_leading_length(styles: StyleChain) -> Length {
-    match styles.get(ParElem::leading) {
-        Smart::Custom(length) => length,
-        Smart::Auto => {
-            let dir = styles.resolve(TextElem::dir);
-            if matches!(dir, typst_library::layout::Dir::TTB | typst_library::layout::Dir::BTT) {
-                Em::new(0.65).into()
-            } else {
-                Em::new(1.25).into()
-            }
-        }
-    }
-}
-
 /// Register show rules for the [paged target](Target::Paged).
 pub fn register(rules: &mut NativeRuleMap) {
     use Target::Paged;
