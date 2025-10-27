@@ -1,6 +1,6 @@
 use typst_library::introspection::Tag;
 use typst_library::layout::{
-    Abs, Axes, FixedAlignment, Fr, Frame, FrameItem, Point, Region, Regions, Rel, Size,
+    Abs, Axes, Dir, FixedAlignment, Fr, Frame, FrameItem, Point, Region, Regions, Rel, Size,
 };
 use typst_utils::Numeric;
 
@@ -11,13 +11,14 @@ use super::{
 
 /// Distributes as many children as fit from `composer.work` into the first
 /// region and returns the resulting frame.
-pub fn distribute(composer: &mut Composer, regions: Regions) -> FlowResult<Frame> {
+pub fn distribute(composer: &mut Composer, regions: Regions, dir: Dir) -> FlowResult<Frame> {
     let mut distributor = Distributor {
         composer,
         regions,
         items: vec![],
         sticky: None,
         stickable: None,
+        dir,
     };
     let init = distributor.snapshot();
     let forced = match distributor.run() {
@@ -26,7 +27,7 @@ pub fn distribute(composer: &mut Composer, regions: Regions) -> FlowResult<Frame
         Err(err) => return Err(err),
     };
     let region = Region::new(regions.size, regions.expand);
-    distributor.finalize(region, init, forced)
+    distributor.finalize(region, init, forced, dir)
 }
 
 /// State for distribution.
@@ -62,6 +63,8 @@ struct Distributor<'a, 'b, 'x, 'y, 'z> {
     /// blocks are supposed to always be in the same page as the subsequent
     /// frame, but that is impossible in that case, which is thus pathological.
     stickable: Option<bool>,
+    /// The text direction for this distribution run.
+    dir: Dir,
 }
 
 /// A snapshot of the distribution state.
@@ -132,7 +135,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             Child::Tag(tag) => self.tag(tag),
             Child::Rel(amount, weakness) => self.rel(*amount, *weakness),
             Child::Fr(fr) => self.fr(*fr),
-            Child::Line(line) => self.line(line)?,
+            Child::Line(line, dir) => self.line(line, dir)?,
             Child::Single(single) => self.single(single)?,
             Child::Multi(multi) => self.multi(multi)?,
             Child::Placed(placed) => self.placed(placed)?,
@@ -226,34 +229,46 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
     }
 
     /// Processes a line of a paragraph.
-    fn line(&mut self, line: &'b LineChild) -> FlowResult<()> {
-        // If the line doesn't fit and a followup region may improve things,
-        // finish the region.
-        // if !self.regions.size.y.fits(line.frame.height()) && self.regions.may_progress() {
-        //     return Err(Stop::Finish(false));
-        // }
-        if !self.regions.size.x.fits(line.frame.width()) && self.regions.may_progress() {
-            return Err(Stop::Finish(false));
+    fn line(&mut self, line: &'b LineChild, dir: Dir) -> FlowResult<()> {
+        // Decide primary axis based on the line direction: for LTR/RTL use
+        // the y-axis, for TTB/BTT use the x-axis.
+        let primary_is_y = matches!(dir, Dir::Ltr | Dir::Rtl);
+
+        // If the line doesn't fit on the primary axis and a followup region
+        // may improve things, finish the region.
+        if primary_is_y {
+            if !self.regions.size.y.fits(line.frame.height()) && self.regions.may_progress() {
+                return Err(Stop::Finish(false));
+            }
+        } else {
+            if !self.regions.size.x.fits(line.frame.width()) && self.regions.may_progress() {
+                return Err(Stop::Finish(false));
+            }
         }
 
-        // If the line's need, which includes its own height and that of
-        // following lines grouped by widow/orphan prevention, does not fit into
-        // the current region, but does fit into the next region, finish the
-        // region.
-        // if !self.regions.size.y.fits(line.need)
-        //     && self
-        //         .regions
-        //         .iter()
-        //         .nth(1)
-        //         .is_some_and(|region| region.y.fits(line.need))
-        if !self.regions.size.x.fits(line.need)
-            && self
-                .regions
-                .iter()
-                .nth(1)
-                .is_some_and(|region| region.x.fits(line.need))
-        {
-            return Err(Stop::Finish(false));
+        // If the line's need does not fit into the current region on the
+        // primary axis, but does fit into the next region on that axis,
+        // finish the region.
+        if primary_is_y {
+            if !self.regions.size.y.fits(line.need)
+                && self
+                    .regions
+                    .iter()
+                    .nth(1)
+                    .is_some_and(|region| region.y.fits(line.need))
+            {
+                return Err(Stop::Finish(false));
+            }
+        } else {
+            if !self.regions.size.x.fits(line.need)
+                && self
+                    .regions
+                    .iter()
+                    .nth(1)
+                    .is_some_and(|region| region.x.fits(line.need))
+            {
+                return Err(Stop::Finish(false));
+            }
         }
 
         self.frame(line.frame.clone(), line.align, false, false)
@@ -393,7 +408,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         )?;
 
         // Push an item for the frame.
-        // self.regions.size.y -= frame.height();
+        self.regions.size.y -= frame.height();
         self.regions.size.x -= frame.width();
         self.flush_tags();
         self.items.push(Item::Frame(frame, align));
@@ -409,7 +424,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             // spacing temporarily available again because it can collapse if it
             // ends up at a break due to the float.
             let weak_spacing = self.weak_spacing();
-            // self.regions.size.y += weak_spacing;
+            self.regions.size.y += weak_spacing;
             self.regions.size.x += weak_spacing;
             self.composer.float(
                 placed,
@@ -417,7 +432,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                 self.items.iter().any(|item| matches!(item, Item::Frame(..))),
                 true,
             )?;
-            // self.regions.size.y -= weak_spacing;
+            self.regions.size.y -= weak_spacing;
             self.regions.size.x -= weak_spacing;
         } else {
             let frame = placed.layout(self.composer.engine, self.regions.base())?;
@@ -459,6 +474,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         region: Region,
         init: DistributionSnapshot<'a, 'b>,
         forced: bool,
+        dir: Dir,
     ) -> FlowResult<Frame> {
         if forced {
             // If this is the very end of the flow, flush pending tags.
@@ -482,44 +498,50 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         let mut has_fr_child = false;
 
         // Determine the amount of used space and the sum of fractionals.
-        // for item in &self.items {
-        //     match item {
-        //         Item::Abs(v, _) => used.y += *v,
-        //         Item::Fr(v, child) => {
-        //             frs += *v;
-        //             has_fr_child |= child.is_some();
-        //         }
-        //         Item::Frame(frame, _) => {
-        //             used.y += frame.height();
-        //             used.x.set_max(frame.width());
-        //         }
-        //         Item::Tag(_) | Item::Placed(..) => {}
-        //     }
-        // }
-        for item in &self.items {
-            match item {
-                Item::Abs(v, _) => used.x += *v,
-                Item::Fr(v, child) => {
-                    frs += *v;
-                    has_fr_child |= child.is_some();
+        if matches!(dir, Dir::Ltr | Dir::Rtl) {
+            for item in &self.items {
+                match item {
+                    Item::Abs(v, _) => used.y += *v,
+                    Item::Fr(v, child) => {
+                        frs += *v;
+                        has_fr_child |= child.is_some();
+                    }
+                    Item::Frame(frame, _) => {
+                        used.y += frame.height();
+                        used.x.set_max(frame.width());
+                    }
+                    Item::Tag(_) | Item::Placed(..) => {}
                 }
-                Item::Frame(frame, _) => {
-                    used.x += frame.width();
-                    used.y.set_max(frame.height());
+            }
+        } else {
+            for item in &self.items {
+                match item {
+                    Item::Abs(v, _) => used.x += *v,
+                    Item::Fr(v, child) => {
+                        frs += *v;
+                        has_fr_child |= child.is_some();
+                    }
+                    Item::Frame(frame, _) => {
+                        used.x += frame.width();
+                        used.y.set_max(frame.height());
+                    }
+                    Item::Tag(_) | Item::Placed(..) => {}
                 }
-                Item::Tag(_) | Item::Placed(..) => {}
             }
         }
 
         // When we have fractional spacing, occupy the remaining space with it.
         let mut fr_space = Abs::zero();
-        // if frs.get() > 0.0 && region.size.y.is_finite() {
-        //     fr_space = region.size.y - used.y;
-        //     used.y = region.size.y;
-        // }
-        if frs.get() > 0.0 && region.size.x.is_finite() {
-            fr_space = region.size.x - used.x;
-            used.x = region.size.x;
+        if matches!(dir, Dir::Ltr | Dir::Rtl) {
+            if frs.get() > 0.0 && region.size.y.is_finite() {
+                fr_space = region.size.y - used.y;
+                used.y = region.size.y;
+            }
+        } else {
+            if frs.get() > 0.0 && region.size.x.is_finite() {
+                fr_space = region.size.x - used.x;
+                used.x = region.size.x;
+            }
         }
 
         // Lay out fractionally sized blocks.
@@ -529,18 +551,23 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                 let Item::Fr(v, Some(single)) = item else { continue };
                 let length = v.share(frs, fr_space);
                 // let pod = Region::new(Size::new(region.size.x, length), region.expand);
-                let pod = Region::new(Size::new(length, region.size.y), region.expand);
+                // let pod = Region::new(Size::new(length, region.size.y), region.expand);
+                let pod = if matches!(dir, Dir::Ltr | Dir::Rtl) {
+                    Region::new(Size::new(region.size.x, length), region.expand)
+                } else {
+                    Region::new(Size::new(length, region.size.y), region.expand)
+                };
                 let frame = single.layout(self.composer.engine, pod)?;
-                // used.x.set_max(frame.width());
+                used.x.set_max(frame.width());
                 used.y.set_max(frame.height());
                 fr_frames.push(frame);
             }
         }
 
         // Also consider the width of insertions for alignment.
-        // if !region.expand.x {
-        //     used.x.set_max(self.composer.insertion_width());
-        // }
+        if !region.expand.x {
+            used.x.set_max(self.composer.insertion_width());
+        }
         // TODO: add insertion_height
         if !region.expand.y {
             used.y.set_max(self.composer.insertion_width());
