@@ -579,8 +579,10 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         let free = size.x - used.x;
 
         let mut output = Frame::soft(size);
-        let mut ruler = FixedAlignment::Start;
-        let mut offset = Abs::zero();
+        // let mut ruler = FixedAlignment::Start;
+        // let mut offset = Abs::zero();
+        let mut ruler = FixedAlignment::End;
+        let mut offset = size.x;
         let mut fr_frames = fr_frames.into_iter();
 
         // Position all items.
@@ -589,12 +591,13 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                 Item::Tag(tag) => {
                     // let y = offset + ruler.position(free);
                     // let pos = Point::with_y(y);
-                    let x = offset + ruler.position(free);
+                    let x = offset - ruler.position(free);
                     let pos = Point::with_x(x);
                     output.push(pos, FrameItem::Tag(tag.clone()));
                 }
                 Item::Abs(v, _) => {
-                    offset += v;
+                    // offset += v;
+                    offset -= v;
                 }
                 Item::Fr(v, single) => {
                     let length = v.share(frs, fr_space);
@@ -606,7 +609,8 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                         let pos = Point::new(offset, y);
                         output.push_frame(pos, frame);
                     }
-                    offset += length;
+                    // offset += length;
+                    offset -= length;
                 }
                 Item::Frame(frame, align) => {
                     // ruler = ruler.max(align.y);
@@ -616,12 +620,13 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                     // let pos = Point::new(x, y);
                     // offset += frame.height();
 
-                    ruler = ruler.max(align.x);
+                    ruler = ruler.min(align.x);
 
-                    let x = offset + ruler.position(free);
+                    let x = offset - ruler.position(free);
                     let y = align.y.position(size.y - frame.height());
                     let pos = Point::new(x, y);
-                    offset += frame.width();
+                    // offset += frame.width();
+                    offset -= frame.width();
 
                     output.push_frame(pos, frame);
                 }
@@ -634,7 +639,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                     let x = placed.align_x.position(size.x - frame.width());
                     let y = match placed.align_y.unwrap_or_default() {
                         Some(align) => align.position(size.y - frame.height()),
-                        _ => offset + ruler.position(free),
+                        _ => offset - ruler.position(free),
                     };
 
                     let pos = Point::new(x, y)
