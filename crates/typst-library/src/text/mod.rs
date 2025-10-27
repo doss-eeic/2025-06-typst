@@ -360,7 +360,6 @@ pub struct TextElem {
     #[ghost]
     pub overhang: bool,
 
-
     /// The top end of the conceptual frame around the text used for layout and
     /// positioning. This affects the size of containers that hold text.
     ///
@@ -1232,9 +1231,6 @@ cast! {
     TextDir,
     self => self.0.into_value(),
     v: Smart<Dir> => {
-        // if v.is_custom_and(|dir| dir.axis() == Axis::Y) {
-        //     bail!("text direction must be horizontal");
-        // }
         Self(v)
     },
 }

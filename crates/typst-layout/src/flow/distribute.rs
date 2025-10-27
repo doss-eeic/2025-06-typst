@@ -550,8 +550,6 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             for item in &self.items {
                 let Item::Fr(v, Some(single)) = item else { continue };
                 let length = v.share(frs, fr_space);
-                // let pod = Region::new(Size::new(region.size.x, length), region.expand);
-                // let pod = Region::new(Size::new(length, region.size.y), region.expand);
                 let pod = match dir {
                     Dir::LTR | Dir::RTL => {
                         Region::new(Size::new(region.size.x, length), region.expand)
@@ -600,55 +598,67 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                 Item::Tag(tag) => {
                     let x = offset - ruler.position(free);
                     let y = offset + ruler.position(free);
-                    // let pos = Point::with_y(y);
-                    let pos = Point::with_x(x);
+                    let pos = match dir {
+                        Dir::LTR | Dir::RTL => Point::with_y(y),
+                        Dir::TTB | Dir::BTT => Point::with_x(x),
+                    };
                     output.push(pos, FrameItem::Tag(tag.clone()));
                 }
                 Item::Abs(v, _) => {
-                    // offset += v;
-                    offset -= v;
+                    match dir {
+                        Dir::LTR | Dir::RTL => offset += v,
+                        Dir::TTB | Dir::BTT => offset -= v,
+                    }
                 }
                 Item::Fr(v, single) => {
                     let length = v.share(frs, fr_space);
                     if let Some(single) = single {
                         let frame = fr_frames.next().unwrap();
-                        // let x = single.align.x.position(size.x - frame.width());
-                        // let pos = Point::new(x, offset);
+                        let x = single.align.x.position(size.x - frame.width());
                         let y = single.align.y.position(size.y - frame.height());
-                        let pos = Point::new(offset, y);
+                        let pos = match dir {
+                            Dir::LTR | Dir::RTL => Point::new(x, offset),
+                            Dir::TTB | Dir::BTT => Point::new(offset, y),
+                        };
                         output.push_frame(pos, frame);
                     }
-                    // offset += length;
-                    offset -= length;
+                    match dir {
+                        Dir::LTR | Dir::RTL => offset += length,
+                        Dir::TTB | Dir::BTT => offset -= length,
+                    }
                 }
                 Item::Frame(frame, align) => {
-                    // ruler = ruler.max(align.y);
+                    ruler = match dir {
+                        Dir::LTR | Dir::RTL => ruler.max(align.y),
+                        Dir::TTB | Dir::BTT => ruler.min(align.x),
+                    };
 
-                    // let x = align.x.position(size.x - frame.width());
-                    // let y = offset + ruler.position(free);
-                    // let pos = Point::new(x, y);
-                    // offset += frame.height();
-
-                    ruler = ruler.min(align.x);
-
-                    let x = offset - ruler.position(free);
-                    let y = align.y.position(size.y - frame.height());
+                    let x = match dir {
+                        Dir::LTR | Dir::RTL => align.x.position(size.x - frame.width()),
+                        Dir::TTB | Dir::BTT => offset - ruler.position(free),
+                    };
+                    let y = match dir {
+                        Dir::LTR | Dir::RTL => offset + ruler.position(free),
+                        Dir::TTB | Dir::BTT => align.y.position(size.y - frame.height()),
+                    };
+                    
+                    
                     let pos = Point::new(x, y);
-                    // offset += frame.width();
-                    offset -= frame.width();
+                    match dir {
+                        Dir::LTR | Dir::RTL => offset += frame.height(),
+                        Dir::TTB | Dir::BTT => offset -= frame.width(),
+                    }
 
                     output.push_frame(pos, frame);
                 }
                 Item::Placed(frame, placed) => {
-                    // let x = placed.align_x.position(size.x - frame.width());
-                    // let y = match placed.align_y.unwrap_or_default() {
-                    //     Some(align) => align.position(size.y - frame.height()),
-                    //     _ => offset + ruler.position(free),
-                    // };
                     let x = placed.align_x.position(size.x - frame.width());
                     let y = match placed.align_y.unwrap_or_default() {
                         Some(align) => align.position(size.y - frame.height()),
-                        _ => offset - ruler.position(free),
+                        _ => match dir {
+                            Dir::LTR | Dir::RTL => offset + ruler.position(free),
+                            Dir::TTB | Dir::BTT => offset - ruler.position(free),
+                        },
                     };
 
                     let pos = Point::new(x, y)
