@@ -163,7 +163,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             return;
         }
 
-        // self.regions.size.y -= amount;
+        self.regions.size.y -= amount;
         self.regions.size.x -= amount;
         self.items.push(Item::Abs(amount, weakness));
     }
@@ -183,7 +183,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                     if weakness <= prev_weakness
                         && (weakness < prev_weakness || amount > prev_amount)
                     {
-                        // self.regions.size.y -= amount - prev_amount;
+                        self.regions.size.y -= amount - prev_amount;
                         self.regions.size.x -= amount - prev_amount;
                         *item = Item::Abs(amount, weakness);
                     }
@@ -202,7 +202,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         for (i, item) in self.items.iter().enumerate().rev() {
             match *item {
                 Item::Abs(amount, 1..) => {
-                    // self.regions.size.y += amount;
+                    self.regions.size.y += amount;
                     self.regions.size.x += amount;
                     self.items.remove(i);
                     break;
