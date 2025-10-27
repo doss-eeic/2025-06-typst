@@ -329,15 +329,23 @@ impl<'a> ShapedText<'a> {
         spans: &SpanMapper,
         justification_ratio: f64,
         extra_justification: Abs,
+        dir: Dir,
     ) -> Frame {
-        // let (top, bottom) = self.measure(engine);
-        // let size = Size::new(self.width(), top + bottom);
+        let (top, bottom) = self.measure(engine);
         let (left, right) = self.measure_vertical(engine);
-        let size = Size::new(left + right, self.height());
+        // let size = Size::new(self.width(), top + bottom);
+        // let size = Size::new(left + right, self.height());
+        let size = match dir {
+            Dir::LTR | Dir::RTL => Size::new(self.width(), top + bottom),
+            Dir::TTB | Dir::BTT => Size::new(left + right, self.height()),
+        };
 
         let mut offset = Abs::zero();
         let mut frame = Frame::soft(size);
-        frame.set_baseline(right);
+        match dir {
+            Dir::LTR | Dir::RTL => frame.set_baseline(top),
+            Dir::TTB | Dir::BTT => frame.set_baseline(right),
+        }
 
         let size = self.styles.resolve(TextElem::size);
         let shift = self.styles.resolve(TextElem::baseline);

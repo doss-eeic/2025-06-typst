@@ -613,6 +613,7 @@ pub fn commit(
                     &p.spans,
                     justification_ratio,
                     extra_justification,
+                    dir,
                 );
                 push(&mut offset, frame, idx);
             }
