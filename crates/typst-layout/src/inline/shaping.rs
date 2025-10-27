@@ -333,8 +333,6 @@ impl<'a> ShapedText<'a> {
     ) -> Frame {
         let (top, bottom) = self.measure(engine);
         let (left, right) = self.measure_vertical(engine);
-        // let size = Size::new(self.width(), top + bottom);
-        // let size = Size::new(left + right, self.height());
         let size = match dir {
             Dir::LTR | Dir::RTL => Size::new(self.width(), top + bottom),
             Dir::TTB | Dir::BTT => Size::new(left + right, self.height()),
@@ -355,10 +353,17 @@ impl<'a> ShapedText<'a> {
         let span_offset = self.styles.get(TextElem::span_offset);
 
         let mut i = 0;
-        for ((font, x_offset, glyph_size), group) in self
+        let roop_range = match dir {
+            Dir::LTR | Dir::RTL => self
             .glyphs
             .all()
-            .group_by_key(|g| (g.font.clone(), g.x_offset, g.size))
+            .group_by_key(|g| (g.font.clone(), g.y_offset, g.size)),
+            Dir::TTB | Dir::BTT => self
+            .glyphs
+            .all()
+            .group_by_key(|g| (g.font.clone(), g.x_offset, g.size)),
+        };
+        for ((font, xy_offset, glyph_size), group) in roop_range
         {
             let mut range = group[0].range.clone();
             for glyph in group {
@@ -366,8 +371,10 @@ impl<'a> ShapedText<'a> {
                 range.end = range.end.max(glyph.range.end);
             }
 
-            // let pos = Point::new(offset, left + shift - y_offset.at(size));
-            let pos = Point::new(left + shift - x_offset.at(size), offset);
+            let pos = match dir {
+                Dir::LTR | Dir::RTL => Point::new(offset, left + shift - xy_offset.at(size)),
+                Dir::TTB | Dir::BTT => Point::new(left + shift - xy_offset.at(size), offset),
+            };
             let glyphs: Vec<Glyph> = group
                 .iter()
                 .map(|shaped: &ShapedGlyph| {
@@ -433,18 +440,23 @@ impl<'a> ShapedText<'a> {
                     // D: justification_right
                     // A+B: Glyph's x_offset
                     // A+B+C+D: Glyph's x_advance
+
+                    let glyph_range = (shaped.range.start - range.start).saturating_as()
+                        ..(shaped.range.end - range.start).saturating_as();
+
+                    let (x_advance_field, x_offset_field, y_advance_field, y_offset_field) =
+                        match dir {
+                            Dir::LTR | Dir::RTL => (x_advance, x_offset, Em::zero(), Em::zero()),
+                            Dir::TTB | Dir::BTT => (Em::zero(), Em::zero(), -shaped.y_advance, shaped.y_offset),
+                        };
+
                     Glyph {
                         id: shaped.glyph_id,
-                        // x_advance,
-                        // x_offset,
-                        // y_advance: Em::zero(),
-                        // y_offset: Em::zero(),
-                        x_advance: Em::zero(),
-                        x_offset: Em::zero(),
-                        y_advance: -shaped.y_advance,
-                        y_offset: shaped.y_offset,
-                        range: (shaped.range.start - range.start).saturating_as()
-                            ..(shaped.range.end - range.start).saturating_as(),
+                        x_advance: x_advance_field,
+                        x_offset: x_offset_field,
+                        y_advance: y_advance_field,
+                        y_offset: y_offset_field,
+                        range: glyph_range,
                         span,
                     }
                 })
@@ -461,20 +473,23 @@ impl<'a> ShapedText<'a> {
                 glyphs,
             };
 
-            // let width = item.width();
+            let width = item.width();
             let height = item.height();
             if decos.is_empty() {
                 frame.push(pos, FrameItem::Text(item));
             } else {
                 // Apply line decorations.
+                // 考慮
                 // frame.push(pos, FrameItem::Text(item.clone()));
                 // for deco in &decos {
                 //     decorate(&mut frame, deco, &item, width, shift, pos);
                 // }
             }
 
-            // offset += width;
-            offset += height;
+            match dir {
+                Dir::LTR | Dir::RTL => offset += width,
+                Dir::TTB | Dir::BTT => offset += height,
+            }
         }
 
         frame.modify_text(self.styles);
