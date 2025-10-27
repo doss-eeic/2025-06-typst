@@ -13,7 +13,7 @@ use typst_library::introspection::{
     Introspector, Location, Locator, LocatorLink, SplitLocator, Tag, TagElem,
 };
 use typst_library::layout::{
-    Abs, AlignElem, Alignment, Axes, BlockElem, ColbreakElem, FixedAlignment, FlushElem,
+    Abs, AlignElem, Alignment, Axes, BlockElem, ColbreakElem, Dir, FixedAlignment, FlushElem,
     Fr, Fragment, Frame, FrameParent, Inherit, PagebreakElem, PlaceElem, PlacementScope,
     Ratio, Region, Regions, Rel, Size, Sizing, Spacing, VElem,
 };
@@ -188,6 +188,7 @@ impl<'a> Collector<'a, '_, '_> {
     fn lines(&mut self, lines: Vec<Frame>, leading: Abs, styles: StyleChain<'a>) {
         let align = styles.resolve(AlignElem::alignment);
         let costs = styles.get(TextElem::costs);
+        let dir = styles.resolve(TextElem::dir);
 
         // Determine whether to prevent widow and orphans.
         let len = lines.len();
@@ -225,7 +226,7 @@ impl<'a> Collector<'a, '_, '_> {
             };
 
             self.output
-                .push(Child::Line(self.boxed(LineChild { frame, align, need })));
+                .push(Child::Line(self.boxed(LineChild { frame, align, need }), dir));
         }
     }
 
@@ -352,7 +353,7 @@ pub enum Child<'a> {
     /// Fractional spacing.
     Fr(Fr),
     /// An already layouted line of a paragraph.
-    Line(BumpBox<'a, LineChild>),
+    Line(BumpBox<'a, LineChild>, Dir),
     /// An unbreakable block.
     Single(BumpBox<'a, SingleChild<'a>>),
     /// A breakable block.

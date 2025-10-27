@@ -11,7 +11,6 @@ pub fn finalize(
     lines: &[Line],
     region: Size,
     expand: bool,
-    dir: Dir,
     locator: &mut SplitLocator<'_>,
 ) -> SourceResult<Fragment> {
     // Determine the resulting width: Full width of the region if we should
@@ -38,16 +37,16 @@ pub fn finalize(
     };
 
     // Stack the lines into one frame per region.
-    if matches!(dir, Dir::Ltr | Dir::Rtl) {
+    if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
         lines
             .iter()
-            .map(|line| commit(engine, p, line, width, region.y, locator))
+            .map(|line| commit(engine, p, line, length, width, region.y, locator))
             .collect::<SourceResult<_>>()
             .map(Fragment::frames)
     } else {
         lines
             .iter()
-            .map(|line| commit(engine, p, line, length, region.x, locator))
+            .map(|line| commit(engine, p, line, length, width, region.x, locator))
             .collect::<SourceResult<_>>()
             .map(Fragment::frames)
     }

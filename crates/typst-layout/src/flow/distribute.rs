@@ -135,7 +135,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             Child::Tag(tag) => self.tag(tag),
             Child::Rel(amount, weakness) => self.rel(*amount, *weakness),
             Child::Fr(fr) => self.fr(*fr),
-            Child::Line(line, dir) => self.line(line, dir)?,
+            Child::Line(line, dir) => self.line(line, *dir)?,
             Child::Single(single) => self.single(single)?,
             Child::Multi(multi) => self.multi(multi)?,
             Child::Placed(placed) => self.placed(placed)?,
@@ -232,7 +232,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
     fn line(&mut self, line: &'b LineChild, dir: Dir) -> FlowResult<()> {
         // Decide primary axis based on the line direction: for LTR/RTL use
         // the y-axis, for TTB/BTT use the x-axis.
-        let primary_is_y = matches!(dir, Dir::Ltr | Dir::Rtl);
+        let primary_is_y = matches!(dir, Dir::LTR | Dir::RTL);
 
         // If the line doesn't fit on the primary axis and a followup region
         // may improve things, finish the region.
@@ -498,7 +498,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         let mut has_fr_child = false;
 
         // Determine the amount of used space and the sum of fractionals.
-        if matches!(dir, Dir::Ltr | Dir::Rtl) {
+        if matches!(dir, Dir::LTR | Dir::RTL) {
             for item in &self.items {
                 match item {
                     Item::Abs(v, _) => used.y += *v,
@@ -532,7 +532,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
 
         // When we have fractional spacing, occupy the remaining space with it.
         let mut fr_space = Abs::zero();
-        if matches!(dir, Dir::Ltr | Dir::Rtl) {
+        if matches!(dir, Dir::LTR | Dir::RTL) {
             if frs.get() > 0.0 && region.size.y.is_finite() {
                 fr_space = region.size.y - used.y;
                 used.y = region.size.y;
@@ -552,7 +552,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                 let length = v.share(frs, fr_space);
                 // let pod = Region::new(Size::new(region.size.x, length), region.expand);
                 // let pod = Region::new(Size::new(length, region.size.y), region.expand);
-                let pod = if matches!(dir, Dir::Ltr | Dir::Rtl) {
+                let pod = if matches!(dir, Dir::LTR | Dir::RTL) {
                     Region::new(Size::new(region.size.x, length), region.expand)
                 } else {
                     Region::new(Size::new(length, region.size.y), region.expand)
