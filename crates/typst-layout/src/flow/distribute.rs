@@ -293,9 +293,9 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
 
         // If the block doesn't fit and a followup region may improve things,
         // finish the region.
-        // if !self.regions.size.y.fits(frame.height()) && self.regions.may_progress() {
-        //     return Err(Stop::Finish(false));
-        // }
+        if !self.regions.size.y.fits(frame.height()) && self.regions.may_progress() {
+            return Err(Stop::Finish(false));
+        }
         if !self.regions.size.x.fits(frame.width()) && self.regions.may_progress() {
             return Err(Stop::Finish(false));
         }
@@ -552,10 +552,13 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                 let length = v.share(frs, fr_space);
                 // let pod = Region::new(Size::new(region.size.x, length), region.expand);
                 // let pod = Region::new(Size::new(length, region.size.y), region.expand);
-                let pod = if matches!(dir, Dir::LTR | Dir::RTL) {
-                    Region::new(Size::new(region.size.x, length), region.expand)
-                } else {
-                    Region::new(Size::new(length, region.size.y), region.expand)
+                let pod = match dir {
+                    Dir::LTR | Dir::RTL => {
+                        Region::new(Size::new(region.size.x, length), region.expand)
+                    }
+                    Dir::TTB | Dir::BTT => {
+                        Region::new(Size::new(length, region.size.y), region.expand)
+                    }
                 };
                 let frame = single.layout(self.composer.engine, pod)?;
                 used.x.set_max(frame.width());
@@ -575,23 +578,29 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
 
         // Determine the region's size.
         let size = region.expand.select(region.size, used.min(region.size));
-        // let free = size.y - used.y;
-        let free = size.x - used.x;
+        let free = match dir {
+            Dir::LTR | Dir::RTL => size.y - used.y,
+            Dir::TTB | Dir::BTT => size.x - used.x,
+        };
 
         let mut output = Frame::soft(size);
-        // let mut ruler = FixedAlignment::Start;
-        // let mut offset = Abs::zero();
-        let mut ruler = FixedAlignment::End;
-        let mut offset = size.x;
+        let mut ruler = match dir {
+            Dir::LTR | Dir::RTL => FixedAlignment::Start,
+            Dir::TTB | Dir::BTT => FixedAlignment::End,
+        };
+        let mut offset = match dir {
+            Dir::LTR | Dir::RTL => Abs::zero(),
+            Dir::TTB | Dir::BTT => size.x,
+        };
         let mut fr_frames = fr_frames.into_iter();
 
         // Position all items.
         for item in self.items {
             match item {
                 Item::Tag(tag) => {
-                    // let y = offset + ruler.position(free);
-                    // let pos = Point::with_y(y);
                     let x = offset - ruler.position(free);
+                    let y = offset + ruler.position(free);
+                    // let pos = Point::with_y(y);
                     let pos = Point::with_x(x);
                     output.push(pos, FrameItem::Tag(tag.clone()));
                 }
