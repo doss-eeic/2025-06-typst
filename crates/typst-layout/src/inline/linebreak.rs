@@ -166,11 +166,16 @@ fn linebreak_simple<'a>(
     breakpoints(p, |end, breakpoint| {
         // Compute the line and its size.
         let mut attempt = line(engine, p, start..end, breakpoint, lines.last());
+        let attempt_param = if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
+            attempt.width
+        } else {
+            attempt.length
+        };
 
         // If the line doesn't fit anymore, we push the last fitting attempt
         // into the stack and rebuild the line from the attempt's end. The
         // resulting line cannot be broken up further.
-        if !width.fits(attempt.length)
+        if !width.fits(attempt_param)
             && let Some((last_attempt, last_end)) = last.take()
         {
             lines.push(last_attempt);
@@ -181,7 +186,7 @@ fn linebreak_simple<'a>(
         // Finish the current line if there is a mandatory line break (i.e. due
         // to "\n") or if the line doesn't fit horizontally already since then
         // no shorter line will be possible.
-        if breakpoint == Breakpoint::Mandatory || !width.fits(attempt.length) {
+        if breakpoint == Breakpoint::Mandatory || !width.fits(attempt_param) {
             lines.push(attempt);
             start = end;
             last = None;
@@ -533,7 +538,11 @@ fn ratio_and_cost(
     let ratio = raw_ratio(
         p,
         available_width,
-        attempt.length,
+        if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
+            attempt.width
+        } else {
+            attempt.length
+        },
         attempt.stretchability(),
         attempt.shrinkability(),
         attempt.justifiables(),
