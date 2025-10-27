@@ -173,7 +173,7 @@ fn layout_inline_impl<'a>(
     let lines = linebreak(engine, &p, region.y - config.hanging_indent);
 
     // Turn the selected lines into frames.
-    finalize(engine, &p, &lines, region, expand, locator)
+    finalize(engine, &p, &lines, region, expand, p.config.dir, locator)
 }
 
 /// Determine the inline layout's configuration.

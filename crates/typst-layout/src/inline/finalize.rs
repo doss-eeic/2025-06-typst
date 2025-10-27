@@ -11,20 +11,21 @@ pub fn finalize(
     lines: &[Line],
     region: Size,
     expand: bool,
+    dir: Dir,
     locator: &mut SplitLocator<'_>,
 ) -> SourceResult<Fragment> {
     // Determine the resulting width: Full width of the region if we should
     // expand or there's fractional spacing, fit-to-width otherwise.
-    // let width = if !region.x.is_finite()
-    //     || (!expand && lines.iter().all(|line| line.fr().is_zero()))
-    // {
-    //     region.x.min(
-    //         p.config.hanging_indent
-    //             + lines.iter().map(|line| line.width).max().unwrap_or_default(),
-    //     )
-    // } else {
-    //     region.x
-    // };
+    let width = if !region.x.is_finite()
+        || (!expand && lines.iter().all(|line| line.fr().is_zero()))
+    {
+        region.x.min(
+            p.config.hanging_indent
+                + lines.iter().map(|line| line.width).max().unwrap_or_default(),
+        )
+    } else {
+        region.x
+    };
     let length = if !region.y.is_finite()
         || (!expand && lines.iter().all(|line| line.fr().is_zero()))
     {
@@ -37,14 +38,17 @@ pub fn finalize(
     };
 
     // Stack the lines into one frame per region.
-    // lines
-    //     .iter()
-    //     .map(|line| commit(engine, p, line, width, region.y, locator))
-    //     .collect::<SourceResult<_>>()
-    //     .map(Fragment::frames)
-    lines
-        .iter()
-        .map(|line| commit(engine, p, line, length, region.x, locator))
-        .collect::<SourceResult<_>>()
-        .map(Fragment::frames)
+    if matches!(dir, Dir::Ltr | Dir::Rtl) {
+        lines
+            .iter()
+            .map(|line| commit(engine, p, line, width, region.y, locator))
+            .collect::<SourceResult<_>>()
+            .map(Fragment::frames)
+    } else {
+        lines
+            .iter()
+            .map(|line| commit(engine, p, line, length, region.x, locator))
+            .collect::<SourceResult<_>>()
+            .map(Fragment::frames)
+    }
 }
