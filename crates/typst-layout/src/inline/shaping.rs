@@ -353,16 +353,16 @@ impl<'a> ShapedText<'a> {
         let span_offset = self.styles.get(TextElem::span_offset);
 
         let mut i = 0;
-        let roop_range = match dir {
-            Dir::LTR | Dir::RTL => self
+        let roop_range = self
             .glyphs
             .all()
-            .group_by_key(|g| (g.font.clone(), g.y_offset, g.size)),
-            Dir::TTB | Dir::BTT => self
-            .glyphs
-            .all()
-            .group_by_key(|g| (g.font.clone(), g.x_offset, g.size)),
-        };
+            .group_by_key(|g| {
+            let offset = match dir {
+                Dir::LTR | Dir::RTL => g.y_offset,
+                Dir::TTB | Dir::BTT => g.x_offset,
+            };
+            (g.font.clone(), offset, g.size)
+            });
         for ((font, xy_offset, glyph_size), group) in roop_range
         {
             let mut range = group[0].range.clone();
@@ -828,7 +828,6 @@ pub fn shape_range<'a>(
             Dir::RTL
         };
 
-        println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
         let shaped = shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
         items.push((range, Item::Text(shaped)));
     };

@@ -34,8 +34,6 @@ pub struct Line<'a> {
     pub items: Items<'a>,
     /// The exact natural length of the line.
     pub length: Abs,
-    /// The exact natural width of the line.
-    pub width: Abs,
     /// Whether the line should be justified.
     pub justify: bool,
     /// Whether the line ends with a hyphen or dash, either naturally or through
@@ -49,7 +47,6 @@ impl Line<'_> {
         Self {
             items: Items::new(),
             length: Abs::zero(),
-            width: Abs::zero(),
             justify: false,
             dash: None,
         }
@@ -193,9 +190,13 @@ pub fn line<'a>(
 
     // Compute the line's width.
     let width = items.iter().map(Item::natural_width).sum();
-    let length = items.iter().map(Item::natural_height).sum();
+    let height = items.iter().map(Item::natural_height).sum();
+    let length = match p.config.dir {
+        Dir::LTR | Dir::RTL => width,
+        Dir::TTB | Dir::BTT => height,
+    };
 
-    Line { items, length, width, justify, dash }
+    Line { items, length, justify, dash }
 }
 
 /// Collects / reshapes all items for the line with the given `range`.

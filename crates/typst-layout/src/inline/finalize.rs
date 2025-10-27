@@ -20,7 +20,7 @@ pub fn finalize(
     {
         region.x.min(
             p.config.hanging_indent
-                + lines.iter().map(|line| line.width).max().unwrap_or_default(),
+                + lines.iter().map(|line| line.length).max().unwrap_or_default(),
         )
     } else {
         region.x
