@@ -3159,6 +3159,7 @@ dependencies = [
  "unicode-math-class",
  "unicode-script",
  "unicode-segmentation",
+ "unicode-width",
 ]
 
 [[package]]

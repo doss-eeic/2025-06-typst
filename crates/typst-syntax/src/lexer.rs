@@ -137,7 +137,8 @@ impl Lexer<'_> {
         if self.mode == SyntaxMode::Markup && newlines >= 2 {
             SyntaxKind::Parbreak
         } else {
-            SyntaxKind::Space
+            // SyntaxKind::Space
+            SyntaxKind::LineComment
         }
     }
 

@@ -41,6 +41,7 @@ unicode-bidi = { workspace = true }
 unicode-math-class = { workspace = true }
 unicode-script = { workspace = true }
 unicode-segmentation = { workspace = true }
+unicode-width = "0.1"
 
 [lints]
 workspace = true

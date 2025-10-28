@@ -94,6 +94,17 @@ impl<'a> Item<'a> {
             Self::Skip(_) => Abs::zero(),
         }
     }
+
+    /// The natural layouted height of the item.
+    pub fn natural_height(&self) -> Abs {
+        match self {
+            Self::Text(shaped) => shaped.height(),
+            Self::Absolute(v, _) => *v,
+            Self::Frame(frame) => frame.height(),
+            Self::Fractional(_, _) | Self::Tag(_) => Abs::zero(),
+            Self::Skip(_) => Abs::zero(),
+        }
+    }
 }
 
 /// An item or not-yet shaped text. We can't shape text until we have collected
