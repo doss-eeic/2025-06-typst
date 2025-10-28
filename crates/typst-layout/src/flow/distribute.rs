@@ -293,9 +293,9 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
 
         // If the block doesn't fit and a followup region may improve things,
         // finish the region.
-        // if !self.regions.size.y.fits(frame.height()) && self.regions.may_progress() {
-        //     return Err(Stop::Finish(false));
-        // }
+        if !self.regions.size.y.fits(frame.height()) && self.regions.may_progress() {
+            return Err(Stop::Finish(false));
+        }
         if !self.regions.size.x.fits(frame.width()) && self.regions.may_progress() {
             return Err(Stop::Finish(false));
         }
@@ -550,12 +550,13 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             for item in &self.items {
                 let Item::Fr(v, Some(single)) = item else { continue };
                 let length = v.share(frs, fr_space);
-                // let pod = Region::new(Size::new(region.size.x, length), region.expand);
-                // let pod = Region::new(Size::new(length, region.size.y), region.expand);
-                let pod = if matches!(dir, Dir::LTR | Dir::RTL) {
-                    Region::new(Size::new(region.size.x, length), region.expand)
-                } else {
-                    Region::new(Size::new(length, region.size.y), region.expand)
+                let pod = match dir {
+                    Dir::LTR | Dir::RTL => {
+                        Region::new(Size::new(region.size.x, length), region.expand)
+                    }
+                    Dir::TTB | Dir::BTT => {
+                        Region::new(Size::new(length, region.size.y), region.expand)
+                    }
                 };
                 let frame = single.layout(self.composer.engine, pod)?;
                 used.x.set_max(frame.width());
@@ -575,71 +576,89 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
 
         // Determine the region's size.
         let size = region.expand.select(region.size, used.min(region.size));
-        // let free = size.y - used.y;
-        let free = size.x - used.x;
+        let free = match dir {
+            Dir::LTR | Dir::RTL => size.y - used.y,
+            Dir::TTB | Dir::BTT => size.x - used.x,
+        };
 
         let mut output = Frame::soft(size);
-        // let mut ruler = FixedAlignment::Start;
-        // let mut offset = Abs::zero();
-        let mut ruler = FixedAlignment::End;
-        let mut offset = size.x;
+        let mut ruler = match dir {
+            Dir::LTR | Dir::RTL => FixedAlignment::Start,
+            Dir::TTB | Dir::BTT => FixedAlignment::End,
+        };
+        let mut offset = match dir {
+            Dir::LTR | Dir::RTL => Abs::zero(),
+            Dir::TTB | Dir::BTT => size.x,
+        };
         let mut fr_frames = fr_frames.into_iter();
 
         // Position all items.
         for item in self.items {
             match item {
                 Item::Tag(tag) => {
-                    // let y = offset + ruler.position(free);
-                    // let pos = Point::with_y(y);
                     let x = offset - ruler.position(free);
-                    let pos = Point::with_x(x);
+                    let y = offset + ruler.position(free);
+                    let pos = match dir {
+                        Dir::LTR | Dir::RTL => Point::with_y(y),
+                        Dir::TTB | Dir::BTT => Point::with_x(x),
+                    };
                     output.push(pos, FrameItem::Tag(tag.clone()));
                 }
                 Item::Abs(v, _) => {
-                    // offset += v;
-                    offset -= v;
+                    match dir {
+                        Dir::LTR | Dir::RTL => offset += v,
+                        Dir::TTB | Dir::BTT => offset -= v,
+                    }
                 }
                 Item::Fr(v, single) => {
                     let length = v.share(frs, fr_space);
                     if let Some(single) = single {
                         let frame = fr_frames.next().unwrap();
-                        // let x = single.align.x.position(size.x - frame.width());
-                        // let pos = Point::new(x, offset);
+                        let x = single.align.x.position(size.x - frame.width());
                         let y = single.align.y.position(size.y - frame.height());
-                        let pos = Point::new(offset, y);
+                        let pos = match dir {
+                            Dir::LTR | Dir::RTL => Point::new(x, offset),
+                            Dir::TTB | Dir::BTT => Point::new(offset, y),
+                        };
                         output.push_frame(pos, frame);
                     }
-                    // offset += length;
-                    offset -= length;
+                    match dir {
+                        Dir::LTR | Dir::RTL => offset += length,
+                        Dir::TTB | Dir::BTT => offset -= length,
+                    }
                 }
                 Item::Frame(frame, align) => {
-                    // ruler = ruler.max(align.y);
+                    ruler = match dir {
+                        Dir::LTR | Dir::RTL => ruler.max(align.y),
+                        Dir::TTB | Dir::BTT => ruler.min(align.x),
+                    };
 
-                    // let x = align.x.position(size.x - frame.width());
-                    // let y = offset + ruler.position(free);
-                    // let pos = Point::new(x, y);
-                    // offset += frame.height();
-
-                    ruler = ruler.min(align.x);
-
-                    let x = offset - ruler.position(free);
-                    let y = align.y.position(size.y - frame.height());
+                    let x = match dir {
+                        Dir::LTR | Dir::RTL => align.x.position(size.x - frame.width()),
+                        Dir::TTB | Dir::BTT => offset - ruler.position(free),
+                    };
+                    let y = match dir {
+                        Dir::LTR | Dir::RTL => offset + ruler.position(free),
+                        Dir::TTB | Dir::BTT => align.y.position(size.y - frame.height()),
+                    };
+                    
+                    
                     let pos = Point::new(x, y);
-                    // offset += frame.width();
-                    offset -= frame.width();
+                    match dir {
+                        Dir::LTR | Dir::RTL => offset += frame.height(),
+                        Dir::TTB | Dir::BTT => offset -= frame.width(),
+                    }
 
                     output.push_frame(pos, frame);
                 }
                 Item::Placed(frame, placed) => {
-                    // let x = placed.align_x.position(size.x - frame.width());
-                    // let y = match placed.align_y.unwrap_or_default() {
-                    //     Some(align) => align.position(size.y - frame.height()),
-                    //     _ => offset + ruler.position(free),
-                    // };
                     let x = placed.align_x.position(size.x - frame.width());
                     let y = match placed.align_y.unwrap_or_default() {
                         Some(align) => align.position(size.y - frame.height()),
-                        _ => offset - ruler.position(free),
+                        _ => match dir {
+                            Dir::LTR | Dir::RTL => offset + ruler.position(free),
+                            Dir::TTB | Dir::BTT => offset - ruler.position(free),
+                        },
                     };
 
                     let pos = Point::new(x, y)
