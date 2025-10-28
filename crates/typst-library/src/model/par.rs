@@ -206,7 +206,8 @@ pub struct ParElem {
     /// #show ". ": it => it + parbreak()
     /// #lorem(55)
     /// ```
-    #[default(Em::new(0.65).into())]
+    // #[default(Em::new(0.65).into())]
+    #[default(Em::new(1.25).into())]
     pub leading: Length,
 
     /// The spacing between paragraphs.

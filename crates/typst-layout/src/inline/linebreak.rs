@@ -170,7 +170,7 @@ fn linebreak_simple<'a>(
         // If the line doesn't fit anymore, we push the last fitting attempt
         // into the stack and rebuild the line from the attempt's end. The
         // resulting line cannot be broken up further.
-        if !width.fits(attempt.width)
+        if !width.fits(attempt.length)
             && let Some((last_attempt, last_end)) = last.take()
         {
             lines.push(last_attempt);
@@ -181,7 +181,7 @@ fn linebreak_simple<'a>(
         // Finish the current line if there is a mandatory line break (i.e. due
         // to "\n") or if the line doesn't fit horizontally already since then
         // no shorter line will be possible.
-        if breakpoint == Breakpoint::Mandatory || !width.fits(attempt.width) {
+        if breakpoint == Breakpoint::Mandatory || !width.fits(attempt.length) {
             lines.push(attempt);
             start = end;
             last = None;
@@ -533,7 +533,7 @@ fn ratio_and_cost(
     let ratio = raw_ratio(
         p,
         available_width,
-        attempt.width,
+        attempt.length,
         attempt.stretchability(),
         attempt.shrinkability(),
         attempt.justifiables(),
