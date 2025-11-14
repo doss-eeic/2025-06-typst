@@ -26,7 +26,3 @@ package-lock.json
 # Nix
 /result
 .direnv/
-
-# ignore all typst and pdf files in tests directory
-tests/**/*.typ
-tests/**/*.pdf
