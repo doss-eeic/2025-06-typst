@@ -110,10 +110,7 @@ impl Frame {
 
     /// The length of the frame along the axis
     pub fn axis_length(&self, axis: Axis) -> Abs {
-        match axis {
-            Axis::X => self.size.x,
-            Axis::Y => self.size.y,
-        }
+        self.size.axis_length(axis)
     }
 
     /// The vertical position of the frame's baseline.
