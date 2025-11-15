@@ -471,20 +471,21 @@ impl<'a> ShapedText<'a> {
                 glyphs,
             };
 
-            // let width = item.width();
-            let height = item.height();
+            let length = match self.dir.axis() {
+                Axis::X => item.width(),
+                Axis::Y => item.height(),
+            };
             if decos.is_empty() {
                 frame.push(pos, FrameItem::Text(item));
             } else {
                 // Apply line decorations.
-                // frame.push(pos, FrameItem::Text(item.clone()));
-                // for deco in &decos {
-                //     decorate(&mut frame, deco, &item, width, shift, pos);
-                // }
+                frame.push(pos, FrameItem::Text(item.clone()));
+                for deco in &decos {
+                    decorate(&mut frame, deco, &item, length, shift, pos);
+                }
             }
 
-            // offset += width;
-            offset += height;
+            offset += length;
         }
 
         frame.modify_text(self.styles);
@@ -793,22 +794,15 @@ pub fn shape_range<'a>(
             .next()
             .map_or(false, |c| is_of_cj_script(c));
 
+        let horizontal_dir = if level.is_ltr() { Dir::LTR } else { Dir::RTL };
         let dir = if is_cj && wants_vertical {
             match style_dir.0 {
                 Smart::Custom(Dir::TTB) => Dir::TTB,
                 Smart::Custom(Dir::BTT) => Dir::BTT,
-                _ => {
-                    if level.is_ltr() {
-                        Dir::LTR
-                    } else {
-                        Dir::RTL
-                    }
-                }
+                _ => horizontal_dir,
             }
-        } else if level.is_ltr() {
-            Dir::LTR
         } else {
-            Dir::RTL
+            horizontal_dir
         };
 
         println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
@@ -1052,7 +1046,6 @@ fn shape_segment<'a>(
         Dir::RTL => rustybuzz::Direction::RightToLeft,
         Dir::TTB => rustybuzz::Direction::TopToBottom,
         Dir::BTT => rustybuzz::Direction::BottomToTop,
-        // _ => unimplemented!("vertical text layout"),
     });
     buffer.guess_segment_properties();
 
@@ -1153,37 +1146,27 @@ fn shape_segment<'a>(
             let c = text[cluster..].chars().next().unwrap();
             let script = c.script();
             let x_advance = font.to_em(pos[i].x_advance);
-            // let y_advance = font.to_em(pos[i].y_advance);
-            let y_advance = font.y_advance(info.glyph_id as u16);
-            // println!(
-            //     "Font pos data - x_advance = {0}, y_advance = {1}",
-            //     pos[i].x_advance, pos[i].y_advance
-            // );
-            match y_advance {
-                Some(y_adv) => {
-                    ctx.glyphs.push(ShapedGlyph {
-                        font: font.clone(),
-                        glyph_id: info.glyph_id as u16,
-                        x_advance,
-                        x_offset: font.to_em(pos[i].x_offset) + script_compensation,
-                        y_advance: y_adv,
-                        y_offset: font.to_em(pos[i].y_offset) + script_shift,
-                        size: scale.at(ctx.size),
-                        adjustability: Adjustability::default(),
-                        range: start..end,
-                        safe_to_break: !info.unsafe_to_break(),
-                        c,
-                        is_justifiable: is_justifiable(
-                            c,
-                            script,
-                            x_advance,
-                            Adjustability::default().stretchability,
-                        ),
-                        script,
-                    });
-                }
-                None => println!("It was None"),
-            }
+            let y_advance = font.y_advance(info.glyph_id as u16).unwrap_or_default();
+            ctx.glyphs.push(ShapedGlyph {
+                font: font.clone(),
+                glyph_id: info.glyph_id as u16,
+                x_advance,
+                x_offset: font.to_em(pos[i].x_offset) + script_compensation,
+                y_advance,
+                y_offset: font.to_em(pos[i].y_offset) + script_shift,
+                size: scale.at(ctx.size),
+                adjustability: Adjustability::default(),
+                range: start..end,
+                safe_to_break: !info.unsafe_to_break(),
+                c,
+                is_justifiable: is_justifiable(
+                    c,
+                    script,
+                    x_advance,
+                    Adjustability::default().stretchability,
+                ),
+                script,
+            });
         } else {
             // First, search for the end of the tofu sequence.
             let k = i;
@@ -1504,11 +1487,10 @@ pub fn is_of_cj_script(c: char) -> bool {
 fn is_cj_script(c: char, script: Script) -> bool {
     use Script::*;
     // U+30FC: Katakana-Hiragana Prolonged Sound Mark
-
     matches!(script, Hiragana | Katakana | Han) || c == '\u{30FC}' || is_fullwidth(c)
 }
 fn is_fullwidth(c: char) -> bool {
-    UnicodeWidthChar::width(c).unwrap_or(0) >= 2
+    UnicodeWidthChar::width(c).unwrap_or_default() >= 2
 }
 
 /// See <https://www.w3.org/TR/clreq/#punctuation_width_adjustment>
