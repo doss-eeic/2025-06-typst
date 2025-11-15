@@ -11,7 +11,7 @@ use ttf_parser::gsub::SubstitutionSubtable;
 use typst_library::World;
 use typst_library::engine::Engine;
 use typst_library::foundations::{Regex, Smart, StyleChain};
-use typst_library::layout::{Abs, Dir, Em, Frame, FrameItem, Point, Rel, Size};
+use typst_library::layout::{Abs, Axis, Dir, Em, Frame, FrameItem, Point, Rel, Size};
 use typst_library::model::{JustificationLimits, ParElem};
 use typst_library::text::{
     Font, FontFamily, FontVariant, Glyph, Lang, Region, ShiftSettings, TextEdgeBounds,
@@ -331,14 +331,18 @@ impl<'a> ShapedText<'a> {
         justification_ratio: f64,
         extra_justification: Abs,
     ) -> Frame {
-        // let (top, bottom) = self.measure(engine);
-        // let size = Size::new(self.width(), top + bottom);
-        let (left, right) = self.measure_vertical(engine);
-        let size = Size::new(left + right, self.height());
+        // If the text direction is horizontal, (cross_axis_min, cross_axis_max) is (top, bottom)
+        // If the text direction is vertical, (cross_axis_min, cross_axis_max) is (left, right)
+        let (cross_axis_min, cross_axis_max) = self.measure(engine);
+        let size = self.dir.consider_dir(
+            Size::new,
+            self.length(),
+            cross_axis_min + cross_axis_max,
+        );
 
         let mut offset = Abs::zero();
         let mut frame = Frame::soft(size);
-        frame.set_baseline(right);
+        frame.set_baseline(cross_axis_min);
 
         let size = self.styles.resolve(TextElem::size);
         let shift = self.styles.resolve(TextElem::baseline);
@@ -348,10 +352,17 @@ impl<'a> ShapedText<'a> {
         let span_offset = self.styles.get(TextElem::span_offset);
 
         let mut i = 0;
-        for ((font, x_offset, glyph_size), group) in self
-            .glyphs
-            .all()
-            .group_by_key(|g| (g.font.clone(), g.x_offset, g.size))
+        for ((font, dir_offset, glyph_size), group) in
+            self.glyphs.all().group_by_key(|g| {
+                (
+                    g.font.clone(),
+                    match self.dir.axis() {
+                        Axis::X => g.x_offset,
+                        Axis::Y => g.y_offset,
+                    },
+                    g.size,
+                )
+            })
         {
             let mut range = group[0].range.clone();
             for glyph in group {
@@ -359,8 +370,11 @@ impl<'a> ShapedText<'a> {
                 range.end = range.end.max(glyph.range.end);
             }
 
-            // let pos = Point::new(offset, left + shift - y_offset.at(size));
-            let pos = Point::new(left + shift - x_offset.at(size), offset);
+            let pos = self.dir.consider_dir(
+                Point::new,
+                offset,
+                cross_axis_min + shift - dir_offset.at(size),
+            );
             let glyphs: Vec<Glyph> = group
                 .iter()
                 .map(|shaped: &ShapedGlyph| {
@@ -370,7 +384,7 @@ impl<'a> ShapedText<'a> {
                     // justification.
                     let kept = self.glyphs.kept.contains(&i);
 
-                    let (x_advance, x_offset) = if kept {
+                    let (x_advance, x_offset) = if kept && self.dir.axis() == Axis::X {
                         let adjustability_left = if justification_ratio < 0.0 {
                             shaped.shrinkability().0
                         } else {
@@ -400,6 +414,13 @@ impl<'a> ShapedText<'a> {
                     } else {
                         (Em::zero(), Em::zero())
                     };
+
+                    let (y_advance, y_offset) = if kept && self.dir.axis() == Axis::Y {
+                        (-shaped.y_advance, shaped.y_offset)
+                    } else {
+                        (Em::zero(), Em::zero())
+                    };
+
                     i += 1;
 
                     // We may not be able to reach the offset completely if
@@ -428,14 +449,10 @@ impl<'a> ShapedText<'a> {
                     // A+B+C+D: Glyph's x_advance
                     Glyph {
                         id: shaped.glyph_id,
-                        // x_advance,
-                        // x_offset,
-                        // y_advance: Em::zero(),
-                        // y_offset: Em::zero(),
-                        x_advance: Em::zero(),
-                        x_offset: Em::zero(),
-                        y_advance: -shaped.y_advance,
-                        y_offset: shaped.y_offset,
+                        x_advance,
+                        x_offset,
+                        y_advance,
+                        y_offset,
                         range: (shaped.range.start - range.start).saturating_as()
                             ..(shaped.range.end - range.start).saturating_as(),
                         span,
@@ -486,20 +503,36 @@ impl<'a> ShapedText<'a> {
         self.glyphs.iter().map(|g| g.y_advance.at(g.size)).sum()
     }
 
-    /// Measure the top and bottom extent of this text.
+    /// Computes the length of a run of glyphs based on the text direction.
+    pub fn length(&self) -> Abs {
+        match self.dir.axis() {
+            Axis::X => self.width(),
+            Axis::Y => self.height(),
+        }
+    }
+
+    // TODO: measure needs more working, and comments should be edited.
+    /// Measure the min and max extent of this text in the cross axis.
     pub fn measure(&self, engine: &Engine) -> (Abs, Abs) {
         let mut top = Abs::zero();
         let mut bottom = Abs::zero();
+        let mut left = Abs::zero();
+        let mut right = Abs::zero();
 
         let size = self.styles.resolve(TextElem::size);
         let top_edge = self.styles.get(TextElem::top_edge);
         let bottom_edge = self.styles.get(TextElem::bottom_edge);
+        let left_edge = self.styles.get(TextElem::left_edge);
+        let right_edge = self.styles.get(TextElem::right_edge);
 
         // Expand top and bottom by reading the font's vertical metrics.
         let mut expand = |font: &Font, bounds: TextEdgeBounds| {
             let (t, b) = font.edges(top_edge, bottom_edge, size, bounds);
+            let (l, r) = font.edges_vertical(left_edge, right_edge, size, bounds);
             top.set_max(t);
             bottom.set_max(b);
+            left.set_max(l);
+            right.set_max(r);
         };
 
         if self.glyphs.is_fully_empty() {
@@ -522,45 +555,10 @@ impl<'a> ShapedText<'a> {
             }
         }
 
-        (top, bottom)
-    }
-
-    pub fn measure_vertical(&self, engine: &Engine) -> (Abs, Abs) {
-        let mut left = Abs::zero();
-        let mut right = Abs::zero();
-
-        let size = self.styles.resolve(TextElem::size);
-        let left_edge = self.styles.get(TextElem::left_edge);
-        let right_edge = self.styles.get(TextElem::right_edge);
-
-        // Expand left and right by reading the font's vertical metrics.
-        let mut expand = |font: &Font, bounds: TextEdgeBounds| {
-            let (l, r) = font.edges_vertical(left_edge, right_edge, size, bounds);
-            left.set_max(l);
-            right.set_max(r);
-        };
-
-        if self.glyphs.is_fully_empty() {
-            // When there are no glyphs, we just use the horizontal metrics of the
-            // first available font.
-            let world = engine.world;
-            for family in families(self.styles) {
-                if let Some(font) = world
-                    .book()
-                    .select(family.as_str(), self.variant)
-                    .and_then(|id| world.font(id))
-                {
-                    expand(&font, TextEdgeBounds::Zero);
-                    break;
-                }
-            }
-        } else {
-            for g in self.glyphs.iter() {
-                expand(&g.font, TextEdgeBounds::Glyph(g.glyph_id));
-            }
+        match self.dir.axis() {
+            Axis::X => (top, bottom),
+            Axis::Y => (left, right),
         }
-
-        (left, right)
     }
 
     /// How many glyphs are in the text where we can insert additional
@@ -785,7 +783,8 @@ pub fn shape_range<'a>(
     let region = styles.get(TextElem::region);
     let mut process = |range: Range, level: BidiLevel| {
         let style_dir = styles.get(TextElem::dir);
-        let wants_vertical = matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
+        let wants_vertical =
+            matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
 
         // Decide whether this run is CJ (Chinese/Japanese) by peeking at the first character
         // in the run using `is_of_cj_script`.
@@ -793,12 +792,18 @@ pub fn shape_range<'a>(
             .chars()
             .next()
             .map_or(false, |c| is_of_cj_script(c));
-            
+
         let dir = if is_cj && wants_vertical {
             match style_dir.0 {
                 Smart::Custom(Dir::TTB) => Dir::TTB,
                 Smart::Custom(Dir::BTT) => Dir::BTT,
-                _ => if level.is_ltr() { Dir::LTR } else { Dir::RTL },
+                _ => {
+                    if level.is_ltr() {
+                        Dir::LTR
+                    } else {
+                        Dir::RTL
+                    }
+                }
             }
         } else if level.is_ltr() {
             Dir::LTR
@@ -807,7 +812,8 @@ pub fn shape_range<'a>(
         };
 
         println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
-        let shaped = shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
+        let shaped =
+            shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
         items.push((range, Item::Text(shaped)));
     };
 
