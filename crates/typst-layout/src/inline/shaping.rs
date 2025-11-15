@@ -805,7 +805,6 @@ pub fn shape_range<'a>(
             horizontal_dir
         };
 
-        println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
         let shaped =
             shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
         items.push((range, Item::Text(shaped)));
