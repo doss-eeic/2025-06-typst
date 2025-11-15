@@ -84,23 +84,12 @@ impl<'a> Item<'a> {
         self.textual().len()
     }
 
-    /// The natural layouted width of the item.
-    pub fn natural_width(&self) -> Abs {
+    /// The natural layouted length of the item.
+    pub fn natural_length(&self, dir: Dir) -> Abs {
         match self {
-            Self::Text(shaped) => shaped.width(),
+            Self::Text(shaped) => shaped.length(),
             Self::Absolute(v, _) => *v,
-            Self::Frame(frame) => frame.width(),
-            Self::Fractional(_, _) | Self::Tag(_) => Abs::zero(),
-            Self::Skip(_) => Abs::zero(),
-        }
-    }
-
-    /// The natural layouted height of the item.
-    pub fn natural_height(&self) -> Abs {
-        match self {
-            Self::Text(shaped) => shaped.height(),
-            Self::Absolute(v, _) => *v,
-            Self::Frame(frame) => frame.height(),
+            Self::Frame(frame) => frame.axis_length(dir.axis()),
             Self::Fractional(_, _) | Self::Tag(_) => Abs::zero(),
             Self::Skip(_) => Abs::zero(),
         }

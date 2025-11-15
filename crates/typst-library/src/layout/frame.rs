@@ -9,7 +9,7 @@ use typst_utils::{LazyHash, Numeric};
 
 use crate::foundations::{Dict, Label, Value, cast, dict};
 use crate::introspection::{Location, Tag};
-use crate::layout::{Abs, Axes, FixedAlignment, Length, Point, Size, Transform};
+use crate::layout::{Abs, Axes, Axis, FixedAlignment, Length, Point, Size, Transform};
 use crate::model::Destination;
 use crate::text::TextItem;
 use crate::visualize::{Color, Curve, FixedStroke, Geometry, Image, Paint, Shape};
@@ -106,6 +106,14 @@ impl Frame {
     /// The height of the frame.
     pub fn height(&self) -> Abs {
         self.size.y
+    }
+
+    /// The length of the frame along the axis
+    pub fn axis_length(&self, axis: Axis) -> Abs {
+        match axis {
+            Axis::X => self.size.x,
+            Axis::Y => self.size.y,
+        }
     }
 
     /// The vertical position of the frame's baseline.

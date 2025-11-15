@@ -1,4 +1,4 @@
-use typst_library::introspection::SplitLocator;
+use typst_library::{introspection::SplitLocator, layout::Axis};
 use typst_utils::Numeric;
 
 use super::*;
@@ -13,41 +13,28 @@ pub fn finalize(
     expand: bool,
     locator: &mut SplitLocator<'_>,
 ) -> SourceResult<Fragment> {
-    // Determine the resulting width: Full width of the region if we should
-    // expand or there's fractional spacing, fit-to-width otherwise.
-    let width = if !region.x.is_finite()
-        || (!expand && lines.iter().all(|line| line.fr().is_zero()))
-    {
-        region.x.min(
-            p.config.hanging_indent
-                + lines.iter().map(|line| line.width).max().unwrap_or_default(),
-        )
-    } else {
-        region.x
+    let (region_flow_length, region_cross_length) = match p.config.dir.axis() {
+        Axis::X => (region.x, region.y),
+        Axis::Y => (region.y, region.x),
     };
-    let length = if !region.y.is_finite()
+
+    // Determine the resulting length: Full flow dimension of the region if we should
+    // expand or there's fractional spacing, fit-to-length otherwise.
+    let length = if !region_flow_length.is_finite()
         || (!expand && lines.iter().all(|line| line.fr().is_zero()))
     {
-        region.y.min(
+        region_flow_length.min(
             p.config.hanging_indent
                 + lines.iter().map(|line| line.length).max().unwrap_or_default(),
         )
     } else {
-        region.y
+        region_flow_length
     };
 
     // Stack the lines into one frame per region.
-    if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
-        lines
-            .iter()
-            .map(|line| commit(engine, p, line, length, width, region.y, locator))
-            .collect::<SourceResult<_>>()
-            .map(Fragment::frames)
-    } else {
-        lines
-            .iter()
-            .map(|line| commit(engine, p, line, length, width, region.x, locator))
-            .collect::<SourceResult<_>>()
-            .map(Fragment::frames)
-    }
+    lines
+        .iter()
+        .map(|line| commit(engine, p, line, length, region_cross_length, locator))
+        .collect::<SourceResult<_>>()
+        .map(Fragment::frames)
 }

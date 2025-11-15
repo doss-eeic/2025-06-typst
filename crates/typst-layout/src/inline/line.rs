@@ -1,10 +1,11 @@
 use std::fmt::{self, Debug, Formatter};
 use std::ops::{Deref, DerefMut};
 
+use rustybuzz::GlyphBuffer;
 use typst_library::engine::Engine;
 use typst_library::foundations::Resolve;
 use typst_library::introspection::{SplitLocator, Tag, TagFlags};
-use typst_library::layout::{Abs, Dir, Em, Fr, Frame, FrameItem, Point};
+use typst_library::layout::{Abs, Axis, Dir, Em, Fr, Frame, FrameItem, Length, Point};
 use typst_library::model::ParLineMarker;
 use typst_library::text::{Lang, TextElem, variant};
 use typst_utils::Numeric;
@@ -34,8 +35,6 @@ pub struct Line<'a> {
     pub items: Items<'a>,
     /// The exact natural length of the line.
     pub length: Abs,
-    /// The exact natural width of the line.
-    pub width: Abs,
     /// Whether the line should be justified.
     pub justify: bool,
     /// Whether the line ends with a hyphen or dash, either naturally or through
@@ -49,7 +48,6 @@ impl Line<'_> {
         Self {
             items: Items::new(),
             length: Abs::zero(),
-            width: Abs::zero(),
             justify: false,
             dash: None,
         }
@@ -94,11 +92,11 @@ impl Line<'_> {
             .sum()
     }
 
-    /// Whether the line has items with negative width.
-    pub fn has_negative_width_items(&self) -> bool {
+    /// Whether the line has items with negative length.
+    pub fn has_negative_length_items(&self, dir: Dir) -> bool {
         self.items.iter().any(|item| match item {
             Item::Absolute(amount, _) => *amount < Abs::zero(),
-            Item::Frame(frame) => frame.width() < Abs::zero(),
+            Item::Frame(frame) => frame.axis_length(dir.axis()) < Abs::zero(),
             _ => false,
         })
     }
@@ -191,11 +189,10 @@ pub fn line<'a>(
     // Deal with stretchability of glyphs at the end of the line.
     adjust_glyph_stretch_at_line_end(p, &mut items);
 
-    // Compute the line's width.
-    let width = items.iter().map(Item::natural_width).sum();
-    let length = items.iter().map(Item::natural_height).sum();
+    // Compute the line's length depending on the text direction.
+    let length = items.iter().map(|item| item.natural_length(p.config.dir)).sum();
 
-    Line { items, length, width, justify, dash }
+    Line { items, length, justify, dash }
 }
 
 /// Collects / reshapes all items for the line with the given `range`.
@@ -489,18 +486,16 @@ pub fn commit(
     p: &Preparation,
     line: &Line,
     length: Abs,
-    width: Abs,
     full: Abs,
     locator: &mut SplitLocator<'_>,
 ) -> SourceResult<Frame> {
-    let dir = p.config.dir;
     let mut remaining = length - line.length - p.config.hanging_indent;
     let mut offset = Abs::zero();
 
     // We always build the line from left to right. In an LTR paragraph, we must
     // thus add the hanging indent to the offset. In an RTL paragraph, the
     // hanging indent arises naturally due to the line width.
-    if dir == Dir::LTR {
+    if p.config.dir == Dir::LTR {
         offset += p.config.hanging_indent;
     }
 
@@ -511,11 +506,7 @@ pub fn commit(
         && text.styles.get(TextElem::overhang)
         && (line.items.len() > 1 || text.glyphs.len() > 1)
     {
-        let amount = if matches!(dir, Dir::LTR | Dir::RTL) {
-            overhang(glyph.c) * glyph.x_advance.at(glyph.size)
-        } else {
-            overhang(glyph.c) * glyph.y_advance.at(glyph.size)
-        };
+        let amount = overhang(glyph.c) * glyph.dir_advance(p.config.dir).at(glyph.size);
         offset -= amount;
         remaining += amount;
     }
@@ -527,11 +518,7 @@ pub fn commit(
         && text.styles.get(TextElem::overhang)
         && (line.items.len() > 1 || text.glyphs.len() > 1)
     {
-        let amount = if matches!(dir, Dir::LTR | Dir::RTL) {
-            overhang(glyph.c) * glyph.x_advance.at(glyph.size)
-        } else {
-            overhang(glyph.c) * glyph.y_advance.at(glyph.size)
-        };
+        let amount = overhang(glyph.c) * glyph.dir_advance(p.config.dir).at(glyph.size);
         remaining += amount;
     }
 
@@ -565,29 +552,21 @@ pub fn commit(
         }
     }
 
-    let mut top = Abs::zero();
-    let mut bottom = Abs::zero();
-    let mut left = Abs::zero();
-    let mut right = Abs::zero();
+    // If the text direction is horizontal, (cross_axis_min, cross_axis_max) means (top, bottom)
+    // If the text direction is vertical, (cross_axis_min, cross_axis_max) means (left, right)
+    let (mut cross_axis_min, mut cross_axis_max) = (Abs::zero(), Abs::zero());
 
     // Build the frames and determine the height and baseline.
     let mut frames = vec![];
     for &(idx, ref item) in line.items.indexed_iter() {
         let mut push = |offset: &mut Abs, frame: Frame, idx: LogicalIndex| {
-            let width = frame.width();
-            let height = frame.height();
-            top.set_max(frame.baseline());
-            bottom.set_max(frame.size().y - frame.baseline());
-            left.set_max(frame.baseline());
-            right.set_max(frame.size().x - frame.baseline());
+            let length = frame.axis_length(p.config.dir.axis());
+            cross_axis_min.set_max(frame.baseline());
+            cross_axis_max.set_max(
+                frame.axis_length(p.config.dir.axis().other()) - frame.baseline(),
+            );
             frames.push((*offset, frame, idx));
-            // *offset += width;
-            // *offset += height;
-            *offset += if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
-                width
-            } else {
-                height
-            }
+            *offset += length;
         };
 
         match &**item {
@@ -633,24 +612,27 @@ pub fn commit(
         remaining = Abs::zero();
     }
 
-    let size = if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
-        Size::new(width, top + bottom)
-    } else {
-        Size::new(left + right, length)
-    };
+    let size =
+        p.config
+            .dir
+            .consider_dir(Size::new, length, cross_axis_min + cross_axis_max);
     let mut output = Frame::soft(size);
-    if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
-        output.set_baseline(top);
-    } else {
-        output.set_baseline(right);
-    }
+    output.set_baseline(cross_axis_min);
+    // if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
+    //     output.set_baseline(top);
+    // } else {
+    //     output.set_baseline(right);
+    // }
 
+    // if let Some(marker) = &p.config.numbering_marker {
+    //     if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
+    //         add_par_line_marker(&mut output, marker, engine, locator, top);
+    //     } else {
+    //         add_par_line_marker(&mut output, marker, engine, locator, right);
+    //     }
+    // }
     if let Some(marker) = &p.config.numbering_marker {
-        if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
-            add_par_line_marker(&mut output, marker, engine, locator, top);
-        } else {
-            add_par_line_marker(&mut output, marker, engine, locator, right);
-        }
+        add_par_line_marker(&mut output, marker, engine, locator, cross_axis_min);
     }
 
     // Ensure that the final frame's items are in logical order rather than in
@@ -660,17 +642,25 @@ pub fn commit(
 
     // Construct the line's frame.
     for (offset, frame, _) in frames {
-        let x = if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
-            offset + p.config.align.position(remaining)
-        } else {
-            right - frame.baseline()
-        };
-        let y = if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
-            top - frame.baseline()
-        } else {
-            offset + p.config.align.position(remaining)
-        };
-        output.push_frame(Point::new(x, y), frame);
+        // let x = if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
+        //     offset + p.config.align.position(remaining)
+        // } else {
+        //     right - frame.baseline()
+        // };
+        // let y = if matches!(p.config.dir, Dir::LTR | Dir::RTL) {
+        //     top - frame.baseline()
+        // } else {
+        //     offset + p.config.align.position(remaining)
+        // };
+        // output.push_frame(Point::new(x, y), frame);
+        output.push_frame(
+            p.config.dir.consider_dir(
+                Point::new,
+                offset + p.config.align.position(remaining),
+                cross_axis_min - frame.baseline(),
+            ),
+            frame,
+        );
     }
 
     Ok(output)

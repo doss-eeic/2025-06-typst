@@ -312,7 +312,7 @@ fn linebreak_optimized_bounded<'a>(
             // lower bound in that case.
             if line_ratio > 0.0
                 && line_lower_bound.is_none()
-                && !attempt.has_negative_width_items()
+                && !attempt.has_negative_length_items(p.config.dir)
             {
                 line_lower_bound = Some(line_cost);
             }
@@ -965,7 +965,7 @@ impl Estimates {
                     justifiables.push(byte_len, g.is_justifiable() as usize);
                 }
             } else {
-                widths.push(range.len(), item.natural_width());
+                widths.push(range.len(), item.natural_length(p.config.dir));
             }
 
             widths.adjust(range.end);

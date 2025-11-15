@@ -317,6 +317,22 @@ impl ShapedGlyph {
         self.x_advance -= amount;
         self.adjustability.shrinkability.1 -= amount;
     }
+
+    /// Returns x_offset if dir is horizontal, y_offset otherwise
+    pub fn dir_offset(&self, dir: Dir) -> Em {
+        match dir.axis() {
+            Axis::X => self.x_offset,
+            Axis::Y => self.y_offset,
+        }
+    }
+
+    /// Returns x_advance if dir is horizontal, y_advance otherwise
+    pub fn dir_advance(&self, dir: Dir) -> Em {
+        match dir.axis() {
+            Axis::X => self.x_advance,
+            Axis::Y => self.y_advance,
+        }
+    }
 }
 
 impl<'a> ShapedText<'a> {
@@ -352,17 +368,10 @@ impl<'a> ShapedText<'a> {
         let span_offset = self.styles.get(TextElem::span_offset);
 
         let mut i = 0;
-        for ((font, dir_offset, glyph_size), group) in
-            self.glyphs.all().group_by_key(|g| {
-                (
-                    g.font.clone(),
-                    match self.dir.axis() {
-                        Axis::X => g.x_offset,
-                        Axis::Y => g.y_offset,
-                    },
-                    g.size,
-                )
-            })
+        for ((font, dir_offset, glyph_size), group) in self
+            .glyphs
+            .all()
+            .group_by_key(|g| (g.font.clone(), g.dir_offset(self.dir), g.size))
         {
             let mut range = group[0].range.clone();
             for glyph in group {
@@ -492,24 +501,11 @@ impl<'a> ShapedText<'a> {
         frame
     }
 
-    /// Computes the width of a run of glyphs relative to the font size,
-    /// accounting for their individual scaling factors and other font metrics.
-    pub fn width(&self) -> Abs {
-        self.glyphs.iter().map(|g| g.x_advance.at(g.size)).sum()
-    }
-
-    /// Computes the height of a run of glyphs relative to the font size,
-    /// accounting for their individual scaling factors and other font metrics.
-    pub fn height(&self) -> Abs {
-        self.glyphs.iter().map(|g| g.y_advance.at(g.size)).sum()
-    }
-
-    /// Computes the length of a run of glyphs based on the text direction.
+    /// Computes the length of a run of glyphs relative to the font size,
+    /// accounting for their individual scaling factors and other font metrics,
+    /// based on the text direction.
     pub fn length(&self) -> Abs {
-        match self.dir.axis() {
-            Axis::X => self.width(),
-            Axis::Y => self.height(),
-        }
+        self.glyphs.iter().map(|g| g.dir_advance(self.dir).at(g.size)).sum()
     }
 
     // TODO: measure needs more working, and comments should be edited.
