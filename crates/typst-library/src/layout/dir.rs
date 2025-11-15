@@ -41,6 +41,18 @@ impl Dir {
             Self::RTL | Self::BTT => false,
         }
     }
+
+    /// Executes a function with the two arguments swapped if the text direction is vertical,
+    /// and executes without swapping if the text direction is horizontal.
+    pub fn consider_dir<F, A, R>(self, func: F, arg1: A, arg2: A) -> R
+    where
+        F: FnOnce(A, A) -> R,
+    {
+        match self.axis() {
+            Axis::X => func(arg1, arg2),
+            Axis::Y => func(arg2, arg1),
+        }
+    }
 }
 
 #[scope]

@@ -11,7 +11,7 @@ use ttf_parser::gsub::SubstitutionSubtable;
 use typst_library::World;
 use typst_library::engine::Engine;
 use typst_library::foundations::{Regex, Smart, StyleChain};
-use typst_library::layout::{Abs, Dir, Em, Frame, FrameItem, Point, Rel, Size};
+use typst_library::layout::{Abs, Axis, Dir, Em, Frame, FrameItem, Point, Rel, Size};
 use typst_library::model::{JustificationLimits, ParElem};
 use typst_library::text::{
     Font, FontFamily, FontVariant, Glyph, Lang, Region, ShiftSettings, TextEdgeBounds,
@@ -20,6 +20,7 @@ use typst_library::text::{
 use typst_utils::SliceExt;
 use unicode_bidi::{BidiInfo, Level as BidiLevel};
 use unicode_script::{Script, UnicodeScript};
+use unicode_width::UnicodeWidthChar;
 
 use super::{Item, Range, SpanMapper, decorate};
 use crate::modifiers::FrameModifyText;
@@ -138,6 +139,8 @@ pub struct ShapedGlyph {
     pub x_advance: Em,
     /// The horizontal offset of the glyph.
     pub x_offset: Em,
+    /// The advance height of the glyph.
+    pub y_advance: Em,
     /// The vertical offset of the glyph.
     pub y_offset: Em,
     /// The font size for the glyph.
@@ -328,12 +331,18 @@ impl<'a> ShapedText<'a> {
         justification_ratio: f64,
         extra_justification: Abs,
     ) -> Frame {
-        let (top, bottom) = self.measure(engine);
-        let size = Size::new(self.width(), top + bottom);
+        // If the text direction is horizontal, (cross_axis_min, cross_axis_max) is (top, bottom)
+        // If the text direction is vertical, (cross_axis_min, cross_axis_max) is (left, right)
+        let (cross_axis_min, cross_axis_max) = self.measure(engine);
+        let size = self.dir.consider_dir(
+            Size::new,
+            self.length(),
+            cross_axis_min + cross_axis_max,
+        );
 
         let mut offset = Abs::zero();
         let mut frame = Frame::soft(size);
-        frame.set_baseline(top);
+        frame.set_baseline(cross_axis_min);
 
         let size = self.styles.resolve(TextElem::size);
         let shift = self.styles.resolve(TextElem::baseline);
@@ -343,10 +352,17 @@ impl<'a> ShapedText<'a> {
         let span_offset = self.styles.get(TextElem::span_offset);
 
         let mut i = 0;
-        for ((font, y_offset, glyph_size), group) in self
-            .glyphs
-            .all()
-            .group_by_key(|g| (g.font.clone(), g.y_offset, g.size))
+        for ((font, dir_offset, glyph_size), group) in
+            self.glyphs.all().group_by_key(|g| {
+                (
+                    g.font.clone(),
+                    match self.dir.axis() {
+                        Axis::X => g.x_offset,
+                        Axis::Y => g.y_offset,
+                    },
+                    g.size,
+                )
+            })
         {
             let mut range = group[0].range.clone();
             for glyph in group {
@@ -354,7 +370,11 @@ impl<'a> ShapedText<'a> {
                 range.end = range.end.max(glyph.range.end);
             }
 
-            let pos = Point::new(offset, top + shift - y_offset.at(size));
+            let pos = self.dir.consider_dir(
+                Point::new,
+                offset,
+                cross_axis_min + shift - dir_offset.at(size),
+            );
             let glyphs: Vec<Glyph> = group
                 .iter()
                 .map(|shaped: &ShapedGlyph| {
@@ -364,7 +384,7 @@ impl<'a> ShapedText<'a> {
                     // justification.
                     let kept = self.glyphs.kept.contains(&i);
 
-                    let (x_advance, x_offset) = if kept {
+                    let (x_advance, x_offset) = if kept && self.dir.axis() == Axis::X {
                         let adjustability_left = if justification_ratio < 0.0 {
                             shaped.shrinkability().0
                         } else {
@@ -394,6 +414,13 @@ impl<'a> ShapedText<'a> {
                     } else {
                         (Em::zero(), Em::zero())
                     };
+
+                    let (y_advance, y_offset) = if kept && self.dir.axis() == Axis::Y {
+                        (-shaped.y_advance, shaped.y_offset)
+                    } else {
+                        (Em::zero(), Em::zero())
+                    };
+
                     i += 1;
 
                     // We may not be able to reach the offset completely if
@@ -424,8 +451,8 @@ impl<'a> ShapedText<'a> {
                         id: shaped.glyph_id,
                         x_advance,
                         x_offset,
-                        y_advance: Em::zero(),
-                        y_offset: Em::zero(),
+                        y_advance,
+                        y_offset,
                         range: (shaped.range.start - range.start).saturating_as()
                             ..(shaped.range.end - range.start).saturating_as(),
                         span,
@@ -444,18 +471,20 @@ impl<'a> ShapedText<'a> {
                 glyphs,
             };
 
-            let width = item.width();
+            // let width = item.width();
+            let height = item.height();
             if decos.is_empty() {
                 frame.push(pos, FrameItem::Text(item));
             } else {
                 // Apply line decorations.
-                frame.push(pos, FrameItem::Text(item.clone()));
-                for deco in &decos {
-                    decorate(&mut frame, deco, &item, width, shift, pos);
-                }
+                // frame.push(pos, FrameItem::Text(item.clone()));
+                // for deco in &decos {
+                //     decorate(&mut frame, deco, &item, width, shift, pos);
+                // }
             }
 
-            offset += width;
+            // offset += width;
+            offset += height;
         }
 
         frame.modify_text(self.styles);
@@ -468,20 +497,42 @@ impl<'a> ShapedText<'a> {
         self.glyphs.iter().map(|g| g.x_advance.at(g.size)).sum()
     }
 
-    /// Measure the top and bottom extent of this text.
+    /// Computes the height of a run of glyphs relative to the font size,
+    /// accounting for their individual scaling factors and other font metrics.
+    pub fn height(&self) -> Abs {
+        self.glyphs.iter().map(|g| g.y_advance.at(g.size)).sum()
+    }
+
+    /// Computes the length of a run of glyphs based on the text direction.
+    pub fn length(&self) -> Abs {
+        match self.dir.axis() {
+            Axis::X => self.width(),
+            Axis::Y => self.height(),
+        }
+    }
+
+    // TODO: measure needs more working, and comments should be edited.
+    /// Measure the min and max extent of this text in the cross axis.
     pub fn measure(&self, engine: &Engine) -> (Abs, Abs) {
         let mut top = Abs::zero();
         let mut bottom = Abs::zero();
+        let mut left = Abs::zero();
+        let mut right = Abs::zero();
 
         let size = self.styles.resolve(TextElem::size);
         let top_edge = self.styles.get(TextElem::top_edge);
         let bottom_edge = self.styles.get(TextElem::bottom_edge);
+        let left_edge = self.styles.get(TextElem::left_edge);
+        let right_edge = self.styles.get(TextElem::right_edge);
 
         // Expand top and bottom by reading the font's vertical metrics.
         let mut expand = |font: &Font, bounds: TextEdgeBounds| {
             let (t, b) = font.edges(top_edge, bottom_edge, size, bounds);
+            let (l, r) = font.edges_vertical(left_edge, right_edge, size, bounds);
             top.set_max(t);
             bottom.set_max(b);
+            left.set_max(l);
+            right.set_max(r);
         };
 
         if self.glyphs.is_fully_empty() {
@@ -504,7 +555,10 @@ impl<'a> ShapedText<'a> {
             }
         }
 
-        (top, bottom)
+        match self.dir.axis() {
+            Axis::X => (top, bottom),
+            Axis::Y => (left, right),
+        }
     }
 
     /// How many glyphs are in the text where we can insert additional
@@ -604,6 +658,7 @@ impl<'a> ShapedText<'a> {
             let ttf = font.ttf();
             let glyph_id = ttf.glyph_index('-')?;
             let x_advance = font.to_em(ttf.glyph_hor_advance(glyph_id)?);
+            let y_advance = font.to_em(ttf.glyph_ver_advance(glyph_id)?);
             let size = base.styles.resolve(TextElem::size);
             let (c, text) = if soft { (SHY, SHY_STR) } else { (HYPHEN, HYPHEN_STR) };
 
@@ -620,6 +675,7 @@ impl<'a> ShapedText<'a> {
                     glyph_id: glyph_id.0,
                     x_advance,
                     x_offset: Em::zero(),
+                    y_advance,
                     y_offset: Em::zero(),
                     size,
                     adjustability: Adjustability::default(),
@@ -726,7 +782,36 @@ pub fn shape_range<'a>(
     let lang = styles.get(TextElem::lang);
     let region = styles.get(TextElem::region);
     let mut process = |range: Range, level: BidiLevel| {
-        let dir = if level.is_ltr() { Dir::LTR } else { Dir::RTL };
+        let style_dir = styles.get(TextElem::dir);
+        let wants_vertical =
+            matches!(style_dir.0, Smart::Custom(Dir::TTB) | Smart::Custom(Dir::BTT));
+
+        // Decide whether this run is CJ (Chinese/Japanese) by peeking at the first character
+        // in the run using `is_of_cj_script`.
+        let is_cj = text[range.start..]
+            .chars()
+            .next()
+            .map_or(false, |c| is_of_cj_script(c));
+
+        let dir = if is_cj && wants_vertical {
+            match style_dir.0 {
+                Smart::Custom(Dir::TTB) => Dir::TTB,
+                Smart::Custom(Dir::BTT) => Dir::BTT,
+                _ => {
+                    if level.is_ltr() {
+                        Dir::LTR
+                    } else {
+                        Dir::RTL
+                    }
+                }
+            }
+        } else if level.is_ltr() {
+            Dir::LTR
+        } else {
+            Dir::RTL
+        };
+
+        println!("Shaping run: {:?}, dir: {:?}", &text[range.clone()], dir);
         let shaped =
             shape(engine, range.start, &text[range.clone()], styles, dir, lang, region);
         items.push((range, Item::Text(shaped)));
@@ -965,7 +1050,9 @@ fn shape_segment<'a>(
     buffer.set_direction(match ctx.dir {
         Dir::LTR => rustybuzz::Direction::LeftToRight,
         Dir::RTL => rustybuzz::Direction::RightToLeft,
-        _ => unimplemented!("vertical text layout"),
+        Dir::TTB => rustybuzz::Direction::TopToBottom,
+        Dir::BTT => rustybuzz::Direction::BottomToTop,
+        // _ => unimplemented!("vertical text layout"),
     });
     buffer.guess_segment_properties();
 
@@ -1066,26 +1153,37 @@ fn shape_segment<'a>(
             let c = text[cluster..].chars().next().unwrap();
             let script = c.script();
             let x_advance = font.to_em(pos[i].x_advance);
-            ctx.glyphs.push(ShapedGlyph {
-                font: font.clone(),
-                glyph_id: info.glyph_id as u16,
-                // TODO: Don't ignore y_advance.
-                x_advance,
-                x_offset: font.to_em(pos[i].x_offset) + script_compensation,
-                y_offset: font.to_em(pos[i].y_offset) + script_shift,
-                size: scale.at(ctx.size),
-                adjustability: Adjustability::default(),
-                range: start..end,
-                safe_to_break: !info.unsafe_to_break(),
-                c,
-                is_justifiable: is_justifiable(
-                    c,
-                    script,
-                    x_advance,
-                    Adjustability::default().stretchability,
-                ),
-                script,
-            });
+            // let y_advance = font.to_em(pos[i].y_advance);
+            let y_advance = font.y_advance(info.glyph_id as u16);
+            // println!(
+            //     "Font pos data - x_advance = {0}, y_advance = {1}",
+            //     pos[i].x_advance, pos[i].y_advance
+            // );
+            match y_advance {
+                Some(y_adv) => {
+                    ctx.glyphs.push(ShapedGlyph {
+                        font: font.clone(),
+                        glyph_id: info.glyph_id as u16,
+                        x_advance,
+                        x_offset: font.to_em(pos[i].x_offset) + script_compensation,
+                        y_advance: y_adv,
+                        y_offset: font.to_em(pos[i].y_offset) + script_shift,
+                        size: scale.at(ctx.size),
+                        adjustability: Adjustability::default(),
+                        range: start..end,
+                        safe_to_break: !info.unsafe_to_break(),
+                        c,
+                        is_justifiable: is_justifiable(
+                            c,
+                            script,
+                            x_advance,
+                            Adjustability::default().stretchability,
+                        ),
+                        script,
+                    });
+                }
+                None => println!("It was None"),
+            }
         } else {
             // First, search for the end of the tofu sequence.
             let k = i;
@@ -1214,6 +1312,7 @@ pub fn create_shape_plan(
 /// Shape the text with tofus from the given font.
 fn shape_tofus(ctx: &mut ShapingContext, base: usize, text: &str, font: Font) {
     let x_advance = font.x_advance(0).unwrap_or_default();
+    let y_advance = font.y_advance(0).unwrap_or_default();
     let add_glyph = |(cluster, c): (usize, char)| {
         let start = base + cluster;
         let end = start + c.len_utf8();
@@ -1223,6 +1322,7 @@ fn shape_tofus(ctx: &mut ShapingContext, base: usize, text: &str, font: Font) {
             glyph_id: 0,
             x_advance,
             x_offset: Em::zero(),
+            y_advance,
             y_offset: Em::zero(),
             size: ctx.size,
             adjustability: Adjustability::default(),
@@ -1404,7 +1504,11 @@ pub fn is_of_cj_script(c: char) -> bool {
 fn is_cj_script(c: char, script: Script) -> bool {
     use Script::*;
     // U+30FC: Katakana-Hiragana Prolonged Sound Mark
-    matches!(script, Hiragana | Katakana | Han) || c == '\u{30FC}'
+
+    matches!(script, Hiragana | Katakana | Han) || c == '\u{30FC}' || is_fullwidth(c)
+}
+fn is_fullwidth(c: char) -> bool {
+    UnicodeWidthChar::width(c).unwrap_or(0) >= 2
 }
 
 /// See <https://www.w3.org/TR/clreq/#punctuation_width_adjustment>
