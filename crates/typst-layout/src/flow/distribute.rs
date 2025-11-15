@@ -1,6 +1,6 @@
 use typst_library::introspection::Tag;
 use typst_library::layout::{
-    Abs, Axes, FixedAlignment, Fr, Frame, FrameItem, Point, Region, Regions, Rel, Size,
+    Abs, Axes, Dir, FixedAlignment, Fr, Frame, FrameItem, Point, Region, Regions, Rel, Size,
 };
 use typst_utils::Numeric;
 
@@ -11,13 +11,14 @@ use super::{
 
 /// Distributes as many children as fit from `composer.work` into the first
 /// region and returns the resulting frame.
-pub fn distribute(composer: &mut Composer, regions: Regions) -> FlowResult<Frame> {
+pub fn distribute(composer: &mut Composer, regions: Regions, dir: Dir) -> FlowResult<Frame> {
     let mut distributor = Distributor {
         composer,
         regions,
         items: vec![],
         sticky: None,
         stickable: None,
+        dir,
     };
     let init = distributor.snapshot();
     let forced = match distributor.run() {
@@ -26,7 +27,7 @@ pub fn distribute(composer: &mut Composer, regions: Regions) -> FlowResult<Frame
         Err(err) => return Err(err),
     };
     let region = Region::new(regions.size, regions.expand);
-    distributor.finalize(region, init, forced)
+    distributor.finalize(region, init, forced, dir)
 }
 
 /// State for distribution.
@@ -62,6 +63,8 @@ struct Distributor<'a, 'b, 'x, 'y, 'z> {
     /// blocks are supposed to always be in the same page as the subsequent
     /// frame, but that is impossible in that case, which is thus pathological.
     stickable: Option<bool>,
+    /// The text direction for this distribution run.
+    dir: Dir,
 }
 
 /// A snapshot of the distribution state.
@@ -132,7 +135,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             Child::Tag(tag) => self.tag(tag),
             Child::Rel(amount, weakness) => self.rel(*amount, *weakness),
             Child::Fr(fr) => self.fr(*fr),
-            Child::Line(line) => self.line(line)?,
+            Child::Line(line, dir) => self.line(line, *dir)?,
             Child::Single(single) => self.single(single)?,
             Child::Multi(multi) => self.multi(multi)?,
             Child::Placed(placed) => self.placed(placed)?,
@@ -164,6 +167,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         }
 
         self.regions.size.y -= amount;
+        self.regions.size.x -= amount;
         self.items.push(Item::Abs(amount, weakness));
     }
 
@@ -183,6 +187,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                         && (weakness < prev_weakness || amount > prev_amount)
                     {
                         self.regions.size.y -= amount - prev_amount;
+                        self.regions.size.x -= amount - prev_amount;
                         *item = Item::Abs(amount, weakness);
                     }
                     return false;
@@ -201,6 +206,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             match *item {
                 Item::Abs(amount, 1..) => {
                     self.regions.size.y += amount;
+                    self.regions.size.x += amount;
                     self.items.remove(i);
                     break;
                 }
@@ -223,25 +229,46 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
     }
 
     /// Processes a line of a paragraph.
-    fn line(&mut self, line: &'b LineChild) -> FlowResult<()> {
-        // If the line doesn't fit and a followup region may improve things,
-        // finish the region.
-        if !self.regions.size.y.fits(line.frame.height()) && self.regions.may_progress() {
-            return Err(Stop::Finish(false));
+    fn line(&mut self, line: &'b LineChild, dir: Dir) -> FlowResult<()> {
+        // Decide primary axis based on the line direction: for LTR/RTL use
+        // the y-axis, for TTB/BTT use the x-axis.
+        let primary_is_y = matches!(dir, Dir::LTR | Dir::RTL);
+
+        // If the line doesn't fit on the primary axis and a followup region
+        // may improve things, finish the region.
+        if primary_is_y {
+            if !self.regions.size.y.fits(line.frame.height()) && self.regions.may_progress() {
+                return Err(Stop::Finish(false));
+            }
+        } else {
+            if !self.regions.size.x.fits(line.frame.width()) && self.regions.may_progress() {
+                return Err(Stop::Finish(false));
+            }
         }
 
-        // If the line's need, which includes its own height and that of
-        // following lines grouped by widow/orphan prevention, does not fit into
-        // the current region, but does fit into the next region, finish the
-        // region.
-        if !self.regions.size.y.fits(line.need)
-            && self
-                .regions
-                .iter()
-                .nth(1)
-                .is_some_and(|region| region.y.fits(line.need))
-        {
-            return Err(Stop::Finish(false));
+        // If the line's need does not fit into the current region on the
+        // primary axis, but does fit into the next region on that axis,
+        // finish the region.
+        if primary_is_y {
+            if !self.regions.size.y.fits(line.need)
+                && self
+                    .regions
+                    .iter()
+                    .nth(1)
+                    .is_some_and(|region| region.y.fits(line.need))
+            {
+                return Err(Stop::Finish(false));
+            }
+        } else {
+            if !self.regions.size.x.fits(line.need)
+                && self
+                    .regions
+                    .iter()
+                    .nth(1)
+                    .is_some_and(|region| region.x.fits(line.need))
+            {
+                return Err(Stop::Finish(false));
+            }
         }
 
         self.frame(line.frame.clone(), line.align, false, false)
@@ -267,6 +294,9 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         // If the block doesn't fit and a followup region may improve things,
         // finish the region.
         if !self.regions.size.y.fits(frame.height()) && self.regions.may_progress() {
+            return Err(Stop::Finish(false));
+        }
+        if !self.regions.size.x.fits(frame.width()) && self.regions.may_progress() {
             return Err(Stop::Finish(false));
         }
 
@@ -379,6 +409,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
 
         // Push an item for the frame.
         self.regions.size.y -= frame.height();
+        self.regions.size.x -= frame.width();
         self.flush_tags();
         self.items.push(Item::Frame(frame, align));
         Ok(())
@@ -394,6 +425,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             // ends up at a break due to the float.
             let weak_spacing = self.weak_spacing();
             self.regions.size.y += weak_spacing;
+            self.regions.size.x += weak_spacing;
             self.composer.float(
                 placed,
                 &self.regions,
@@ -401,6 +433,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                 true,
             )?;
             self.regions.size.y -= weak_spacing;
+            self.regions.size.x -= weak_spacing;
         } else {
             let frame = placed.layout(self.composer.engine, self.regions.base())?;
             self.composer
@@ -441,6 +474,7 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         region: Region,
         init: DistributionSnapshot<'a, 'b>,
         forced: bool,
+        dir: Dir,
     ) -> FlowResult<Frame> {
         if forced {
             // If this is the very end of the flow, flush pending tags.
@@ -464,26 +498,50 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         let mut has_fr_child = false;
 
         // Determine the amount of used space and the sum of fractionals.
-        for item in &self.items {
-            match item {
-                Item::Abs(v, _) => used.y += *v,
-                Item::Fr(v, child) => {
-                    frs += *v;
-                    has_fr_child |= child.is_some();
+        if matches!(dir, Dir::LTR | Dir::RTL) {
+            for item in &self.items {
+                match item {
+                    Item::Abs(v, _) => used.y += *v,
+                    Item::Fr(v, child) => {
+                        frs += *v;
+                        has_fr_child |= child.is_some();
+                    }
+                    Item::Frame(frame, _) => {
+                        used.y += frame.height();
+                        used.x.set_max(frame.width());
+                    }
+                    Item::Tag(_) | Item::Placed(..) => {}
                 }
-                Item::Frame(frame, _) => {
-                    used.y += frame.height();
-                    used.x.set_max(frame.width());
+            }
+        } else {
+            for item in &self.items {
+                match item {
+                    Item::Abs(v, _) => used.x += *v,
+                    Item::Fr(v, child) => {
+                        frs += *v;
+                        has_fr_child |= child.is_some();
+                    }
+                    Item::Frame(frame, _) => {
+                        used.x += frame.width();
+                        used.y.set_max(frame.height());
+                    }
+                    Item::Tag(_) | Item::Placed(..) => {}
                 }
-                Item::Tag(_) | Item::Placed(..) => {}
             }
         }
 
         // When we have fractional spacing, occupy the remaining space with it.
         let mut fr_space = Abs::zero();
-        if frs.get() > 0.0 && region.size.y.is_finite() {
-            fr_space = region.size.y - used.y;
-            used.y = region.size.y;
+        if matches!(dir, Dir::LTR | Dir::RTL) {
+            if frs.get() > 0.0 && region.size.y.is_finite() {
+                fr_space = region.size.y - used.y;
+                used.y = region.size.y;
+            }
+        } else {
+            if frs.get() > 0.0 && region.size.x.is_finite() {
+                fr_space = region.size.x - used.x;
+                used.x = region.size.x;
+            }
         }
 
         // Lay out fractionally sized blocks.
@@ -492,9 +550,17 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
             for item in &self.items {
                 let Item::Fr(v, Some(single)) = item else { continue };
                 let length = v.share(frs, fr_space);
-                let pod = Region::new(Size::new(region.size.x, length), region.expand);
+                let pod = match dir {
+                    Dir::LTR | Dir::RTL => {
+                        Region::new(Size::new(region.size.x, length), region.expand)
+                    }
+                    Dir::TTB | Dir::BTT => {
+                        Region::new(Size::new(length, region.size.y), region.expand)
+                    }
+                };
                 let frame = single.layout(self.composer.engine, pod)?;
                 used.x.set_max(frame.width());
+                used.y.set_max(frame.height());
                 fr_frames.push(frame);
             }
         }
@@ -503,44 +569,85 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
         if !region.expand.x {
             used.x.set_max(self.composer.insertion_width());
         }
+        // TODO: add insertion_height
+        if !region.expand.y {
+            used.y.set_max(self.composer.insertion_width());
+        }
 
         // Determine the region's size.
         let size = region.expand.select(region.size, used.min(region.size));
-        let free = size.y - used.y;
+        let free = match dir {
+            Dir::LTR | Dir::RTL => size.y - used.y,
+            Dir::TTB | Dir::BTT => size.x - used.x,
+        };
 
         let mut output = Frame::soft(size);
-        let mut ruler = FixedAlignment::Start;
-        let mut offset = Abs::zero();
+        let mut ruler = match dir {
+            Dir::LTR | Dir::RTL => FixedAlignment::Start,
+            Dir::TTB | Dir::BTT => FixedAlignment::End,
+        };
+        let mut offset = match dir {
+            Dir::LTR | Dir::RTL => Abs::zero(),
+            Dir::TTB | Dir::BTT => size.x,
+        };
         let mut fr_frames = fr_frames.into_iter();
 
         // Position all items.
         for item in self.items {
             match item {
                 Item::Tag(tag) => {
+                    let x = offset - ruler.position(free);
                     let y = offset + ruler.position(free);
-                    let pos = Point::with_y(y);
+                    let pos = match dir {
+                        Dir::LTR | Dir::RTL => Point::with_y(y),
+                        Dir::TTB | Dir::BTT => Point::with_x(x),
+                    };
                     output.push(pos, FrameItem::Tag(tag.clone()));
                 }
                 Item::Abs(v, _) => {
-                    offset += v;
+                    match dir {
+                        Dir::LTR | Dir::RTL => offset += v,
+                        Dir::TTB | Dir::BTT => offset -= v,
+                    }
                 }
                 Item::Fr(v, single) => {
                     let length = v.share(frs, fr_space);
                     if let Some(single) = single {
                         let frame = fr_frames.next().unwrap();
                         let x = single.align.x.position(size.x - frame.width());
-                        let pos = Point::new(x, offset);
+                        let y = single.align.y.position(size.y - frame.height());
+                        let pos = match dir {
+                            Dir::LTR | Dir::RTL => Point::new(x, offset),
+                            Dir::TTB | Dir::BTT => Point::new(offset, y),
+                        };
                         output.push_frame(pos, frame);
                     }
-                    offset += length;
+                    match dir {
+                        Dir::LTR | Dir::RTL => offset += length,
+                        Dir::TTB | Dir::BTT => offset -= length,
+                    }
                 }
                 Item::Frame(frame, align) => {
-                    ruler = ruler.max(align.y);
+                    ruler = match dir {
+                        Dir::LTR | Dir::RTL => ruler.max(align.y),
+                        Dir::TTB | Dir::BTT => ruler.min(align.x),
+                    };
 
-                    let x = align.x.position(size.x - frame.width());
-                    let y = offset + ruler.position(free);
+                    let x = match dir {
+                        Dir::LTR | Dir::RTL => align.x.position(size.x - frame.width()),
+                        Dir::TTB | Dir::BTT => offset - ruler.position(free),
+                    };
+                    let y = match dir {
+                        Dir::LTR | Dir::RTL => offset + ruler.position(free),
+                        Dir::TTB | Dir::BTT => align.y.position(size.y - frame.height()),
+                    };
+                    
+                    
                     let pos = Point::new(x, y);
-                    offset += frame.height();
+                    match dir {
+                        Dir::LTR | Dir::RTL => offset += frame.height(),
+                        Dir::TTB | Dir::BTT => offset -= frame.width(),
+                    }
 
                     output.push_frame(pos, frame);
                 }
@@ -548,7 +655,10 @@ impl<'a, 'b> Distributor<'a, 'b, '_, '_, '_> {
                     let x = placed.align_x.position(size.x - frame.width());
                     let y = match placed.align_y.unwrap_or_default() {
                         Some(align) => align.position(size.y - frame.height()),
-                        _ => offset + ruler.position(free),
+                        _ => match dir {
+                            Dir::LTR | Dir::RTL => offset + ruler.position(free),
+                            Dir::TTB | Dir::BTT => offset - ruler.position(free),
+                        },
                     };
 
                     let pos = Point::new(x, y)

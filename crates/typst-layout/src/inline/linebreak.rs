@@ -142,11 +142,11 @@ impl Trim {
 pub fn linebreak<'a>(
     engine: &Engine,
     p: &'a Preparation<'a>,
-    width: Abs,
+    length: Abs,
 ) -> Vec<Line<'a>> {
     match p.config.linebreaks {
-        Linebreaks::Simple => linebreak_simple(engine, p, width),
-        Linebreaks::Optimized => linebreak_optimized(engine, p, width),
+        Linebreaks::Simple => linebreak_simple(engine, p, length),
+        Linebreaks::Optimized => linebreak_optimized(engine, p, length),
     }
 }
 
@@ -157,7 +157,7 @@ pub fn linebreak<'a>(
 fn linebreak_simple<'a>(
     engine: &Engine,
     p: &'a Preparation<'a>,
-    width: Abs,
+    length: Abs,
 ) -> Vec<Line<'a>> {
     let mut lines = Vec::with_capacity(16);
     let mut start = 0;
@@ -170,7 +170,7 @@ fn linebreak_simple<'a>(
         // If the line doesn't fit anymore, we push the last fitting attempt
         // into the stack and rebuild the line from the attempt's end. The
         // resulting line cannot be broken up further.
-        if !width.fits(attempt.width)
+        if !length.fits(attempt.length)
             && let Some((last_attempt, last_end)) = last.take()
         {
             lines.push(last_attempt);
@@ -181,7 +181,7 @@ fn linebreak_simple<'a>(
         // Finish the current line if there is a mandatory line break (i.e. due
         // to "\n") or if the line doesn't fit horizontally already since then
         // no shorter line will be possible.
-        if breakpoint == Breakpoint::Mandatory || !width.fits(attempt.width) {
+        if breakpoint == Breakpoint::Mandatory || !length.fits(attempt.length) {
             lines.push(attempt);
             start = end;
             last = None;
@@ -533,7 +533,10 @@ fn ratio_and_cost(
     let ratio = raw_ratio(
         p,
         available_width,
-        attempt.width,
+        match p.config.dir {
+            Dir::LTR | Dir::RTL => attempt.length,
+            _ => attempt.length,
+        },
         attempt.stretchability(),
         attempt.shrinkability(),
         attempt.justifiables(),

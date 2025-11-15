@@ -171,7 +171,10 @@ fn layout_inline_impl<'a>(
     let p = prepare(engine, &config, &text, segments, spans)?;
 
     // Break the text into lines.
-    let lines = linebreak(engine, &p, region.x - config.hanging_indent);
+    let lines = match config.dir {
+        Dir::LTR | Dir::RTL => linebreak(engine, &p, region.x - config.hanging_indent),
+        Dir::TTB | Dir::BTT => linebreak(engine, &p, region.y - config.hanging_indent),
+    };
 
     // Turn the selected lines into frames.
     finalize(engine, &p, &lines, region, expand, locator)
